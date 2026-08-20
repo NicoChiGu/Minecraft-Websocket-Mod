@@ -36,7 +36,7 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
                 Screens.getWidgets(screen).add(
                     Button.builder(Component.translatable("button.minecraft_websocket_tunnel.open"), button ->
                             client.gui.setScreen(new TunnelConfigScreen(screen, config, CONFIG_PATH)))
-                        .bounds(Math.max(5, scaledWidth - 110), 8, 100, 20)
+                        .bounds(Math.max(5, screen.width - 110), 8, 100, 20)
                         .build()
                 );
             }

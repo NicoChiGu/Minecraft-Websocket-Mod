@@ -27,6 +27,8 @@ public final class TunnelClient {
     private volatile ServerSocket localServer;
     private volatile long rxBytes;
     private volatile long txBytes;
+    private volatile long pingMs = -1;
+    private volatile Thread heartbeatThread;
 
     public TunnelClient(ClientConfig config) { this.config = config; }
 
@@ -63,6 +65,7 @@ public final class TunnelClient {
         Thread accept = new Thread(this::acceptLoop, "mc-wss-client-accept");
         accept.setDaemon(true);
         accept.start();
+        startHeartbeat();
     }
 
     private void acceptLoop() {
@@ -122,11 +125,32 @@ public final class TunnelClient {
                 }
                 case CLOSE -> closeSocket(sockets.remove(frame.connectionId()));
                 case PING -> send(new Frame(FrameType.PONG, 0, frame.payload()));
+                case PONG -> {
+                    if (frame.payload().length == Long.BYTES) {
+                        long sent = ByteBuffer.wrap(frame.payload()).getLong();
+                        pingMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - sent));
+                    }
+                }
                 default -> { }
             }
         } catch (IOException e) {
             closeSocket(sockets.remove(frame.connectionId()));
         }
+    }
+
+    private void startHeartbeat() {
+        heartbeatThread = new Thread(() -> {
+            while (state == State.RUNNING) {
+                try {
+                    send(Frame.ping(System.nanoTime()));
+                    Thread.sleep(5000);
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+            }
+        }, "mc-wss-heartbeat");
+        heartbeatThread.setDaemon(true);
+        heartbeatThread.start();
     }
 
     private void send(Frame frame) {
@@ -153,4 +177,5 @@ public final class TunnelClient {
     public long rxBytes() { return rxBytes; }
     public long txBytes() { return txBytes; }
     public int localPort() { ServerSocket s = localServer; return s == null ? config.localPort : s.getLocalPort(); }
+    public long pingMs() { return pingMs; }
 }

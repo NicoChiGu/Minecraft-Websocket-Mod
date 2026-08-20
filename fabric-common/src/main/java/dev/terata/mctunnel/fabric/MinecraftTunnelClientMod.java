@@ -7,11 +7,13 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
+import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
 import net.minecraft.client.toast.SystemToast;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 
 import java.nio.file.Path;
@@ -37,13 +39,29 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
                     button -> client.setScreen(new TunnelConfigScreen(screen, config, CONFIG_PATH)))
                     .dimensions(Math.max(5, scaledWidth - 110), 8, 100, 20)
                     .build());
+                Screens.getButtons(screen).add(ButtonWidget.builder(
+                    Text.literal("连接/断开"),
+                    button -> {
+                        try { toggle(config); } catch (Exception e) { reportError(client, Text.literal(e.getMessage())); }
+                    })
+                    .dimensions(Math.max(5, scaledWidth - 110), 34, 100, 20)
+                    .build());
             }
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(MinecraftTunnelClientMod::observeTunnel);
+        HudRenderCallback.EVENT.register(TunnelHud::render);
     }
 
     private static void observeTunnel(MinecraftClient client) {
+        if (client.currentScreen instanceof MultiplayerScreen screen) {
+            int x = Math.max(5, client.getWindow().getScaledWidth() - 110);
+            for (ClickableWidget widget : Screens.getButtons(screen)) {
+                if (widget instanceof ButtonWidget button && button.getMessage().getString().equals("连接/断开")) {
+                    button.setPosition(x, 34);
+                }
+            }
+        }
         TunnelClient active = tunnel;
         TunnelClient.State state = active == null ? TunnelClient.State.STOPPED : active.state();
         String status = active == null ? "" : active.status();
