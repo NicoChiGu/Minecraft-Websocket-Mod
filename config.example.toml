@@ -8,3 +8,4 @@ target-port = 25565
 
 path = "/tunnel"
 token = "replace-with-a-long-random-token"
+check-for-updates = true

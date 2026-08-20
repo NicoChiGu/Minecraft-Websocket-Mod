@@ -3,8 +3,12 @@ package dev.terata.mctunnel.fabric;
 import dev.terata.mctunnel.core.ClientLog;
 import dev.terata.mctunnel.core.ClientProfile;
 import dev.terata.mctunnel.core.ClientProfileStore;
+import dev.terata.mctunnel.core.ClientSettings;
 import dev.terata.mctunnel.core.TunnelClient;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
@@ -30,6 +34,7 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
     private static final Path CONFIG_DIR = FabricLoader.getInstance().getConfigDir().resolve("minecraft-websocket");
     private static final Path PROFILES_PATH = CONFIG_DIR.resolve("client-profiles.properties");
     private static final Path LEGACY_CONFIG_PATH = CONFIG_DIR.resolve("client.properties");
+    private static final Path CLIENT_SETTINGS_PATH = CONFIG_DIR.resolve("client-settings.properties");
     private static final ExecutorService CONNECTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "mc-wss-client-connect");
         thread.setDaemon(true);
@@ -49,6 +54,8 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
     private static volatile MultiplayerScreen controlsScreen;
     private static volatile ButtonWidget settingsButton;
     private static volatile boolean shuttingDown;
+    private static volatile ClientSettings clientSettings = ClientSettings.defaults();
+    private static volatile FabricUpdateSupport updateSupport;
 
     @Override
     public void onInitializeClient() {
@@ -67,6 +74,19 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
         }
         ClientLog.info(Text.translatable("log.minecraft_websocket_tunnel.client_ready").getString());
 
+        ClientSettings.LoadResult loadedSettings = ClientSettings.load(CLIENT_SETTINGS_PATH);
+        clientSettings = loadedSettings.settings();
+        if (loadedSettings.warning() != null) {
+            ClientLog.warn("Client settings: " + loadedSettings.warning());
+        }
+
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
+            dispatcher.register(ClientCommandManager.literal("mcws")
+                .then(ClientCommandManager.literal("update")
+                    .executes(context -> startClientUpdate(context.getSource()))
+                    .then(ClientCommandManager.literal("client")
+                        .executes(context -> startClientUpdate(context.getSource()))))));
+
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (!(screen instanceof MultiplayerScreen multiplayerScreen)) return;
             ButtonWidget nextSettingsButton = ButtonWidget.builder(
@@ -81,7 +101,10 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
             TunnelMultiplayerBridge.sync(multiplayerScreen);
         });
 
-        ClientLifecycleEvents.CLIENT_STARTED.register(client -> startAutoConnect());
+        ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
+            startAutoConnect();
+            initializeUpdates(client);
+        });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> shutdownClient());
         ClientTickEvents.END_CLIENT_TICK.register(MinecraftTunnelClientMod::observeTunnel);
         HudRenderCallback.EVENT.register((context, tickCounter) -> TunnelHud.render(context));
@@ -270,6 +293,9 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
             connectionTask = null;
         }
         if (active != null) active.stopAndAwait(2, TimeUnit.SECONDS);
+        FabricUpdateSupport updates = updateSupport;
+        updateSupport = null;
+        if (updates != null) updates.close();
         CONNECTOR.shutdownNow();
     }
 
@@ -374,6 +400,68 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
 
     public static void logInfo(Text message) { ClientLog.info(message.getString()); }
     public static TunnelClient tunnel() { return tunnel; }
+    public static ClientSettings clientSettings() { return clientSettings; }
+
+    public static synchronized boolean saveClientSettings(ClientSettings settings) {
+        try {
+            ClientSettings.save(CLIENT_SETTINGS_PATH, settings);
+            clientSettings = settings;
+            return true;
+        } catch (Exception e) {
+            reportError(MinecraftClient.getInstance(),
+                Text.translatable("message.minecraft_websocket_tunnel.settings_save_failed", readableMessage(e)));
+            return false;
+        }
+    }
+
+    private static synchronized void initializeUpdates(MinecraftClient client) {
+        if (shuttingDown || updateSupport != null) return;
+        try {
+            updateSupport = FabricUpdateSupport.create(MinecraftTunnelVersion.TARGET);
+        } catch (Exception e) {
+            ClientLog.warn("Update service unavailable: " + FabricUpdateSupport.readableMessage(e));
+            return;
+        }
+        if (!clientSettings.checkForUpdates()) return;
+        updateSupport.service().checkAsync().whenComplete((result, error) -> executeOnClient(client, () -> {
+            if (error != null) {
+                ClientLog.warn(Text.translatable("log.minecraft_websocket_tunnel.update_check_failed",
+                    FabricUpdateSupport.readableMessage(error)).getString());
+            } else if (result.updateAvailable()) {
+                Text detail = Text.translatable("toast.minecraft_websocket_tunnel.update_available",
+                    result.latest().version());
+                ClientLog.info(detail.getString());
+                showToast(Text.translatable("toast.minecraft_websocket_tunnel.update_title"), detail, 8_000L);
+            }
+        }));
+    }
+
+    private static int startClientUpdate(FabricClientCommandSource source) {
+        FabricUpdateSupport updates = updateSupport;
+        if (updates == null) {
+            source.sendError(Text.translatable("command.minecraft_websocket_tunnel.update_unavailable"));
+            return 0;
+        }
+        source.sendFeedback(Text.translatable("command.minecraft_websocket_tunnel.update_checking"));
+        updates.service().prepareUpdateAsync().whenComplete((result, error) ->
+            executeOnClient(source.getClient(), () -> {
+                if (error != null) {
+                    source.sendError(Text.translatable("command.minecraft_websocket_tunnel.update_failed",
+                        FabricUpdateSupport.readableMessage(error)));
+                    return;
+                }
+                Text feedback = switch (result.status()) {
+                    case NO_RELEASE -> Text.translatable("command.minecraft_websocket_tunnel.update_no_release");
+                    case UP_TO_DATE -> Text.translatable("command.minecraft_websocket_tunnel.update_current",
+                        result.check().currentVersion());
+                    case STAGED -> Text.translatable("command.minecraft_websocket_tunnel.update_staged",
+                        result.check().latest().version());
+                };
+                source.sendFeedback(feedback);
+                ClientLog.info(feedback.getString());
+            }));
+        return 1;
+    }
 
     private static Throwable unwrap(Throwable error) {
         if (error == null) return new IllegalStateException("Connection failed");

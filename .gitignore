@@ -2,3 +2,4 @@
 .gradle-user-home/
 .gradle/
 **/build/
+**/run/

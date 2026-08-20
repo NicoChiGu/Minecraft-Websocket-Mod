@@ -30,6 +30,9 @@ public final class TunnelClient {
 
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long RECONNECT_DELAY_MILLIS = 5_000L;
+    private static final long HEARTBEAT_INTERVAL_MILLIS = 5_000L;
+    private static final long HEARTBEAT_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(10L);
+    private static final int HEARTBEAT_WINDOW_SIZE = 20;
     private static final ReconnectListener NOOP_RECONNECT_LISTENER = new ReconnectListener() { };
 
     private final ClientConfig config;
@@ -38,6 +41,7 @@ public final class TunnelClient {
     private final Map<Integer, Socket> sockets = new ConcurrentHashMap<>();
     private final AtomicInteger ids = new AtomicInteger();
     private final AtomicBoolean reconnecting = new AtomicBoolean();
+    private final HeartbeatTracker heartbeatTracker = new HeartbeatTracker(HEARTBEAT_WINDOW_SIZE);
     private volatile State state = State.STOPPED;
     private volatile String status = "Stopped";
     private volatile WebSocketClient ws;
@@ -195,7 +199,11 @@ public final class TunnelClient {
         if (stopRequested || !reconnecting.compareAndSet(false, true)) return;
         state = State.CONNECTING;
         status = reason;
+        Thread previousHeartbeat = heartbeatThread;
+        heartbeatThread = null;
+        interrupt(previousHeartbeat);
         pingMs = -1;
+        heartbeatTracker.reset();
         closeLocalListener();
         closeAllLocal();
 
@@ -330,7 +338,10 @@ public final class TunnelClient {
                 case PONG -> {
                     if (frame.payload().length == Long.BYTES) {
                         long sent = ByteBuffer.wrap(frame.payload()).getLong();
-                        pingMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - sent));
+                        long roundTripNanos = heartbeatTracker.recordPong(sent, System.nanoTime());
+                        if (roundTripNanos >= 0) {
+                            pingMs = Math.max(0, TimeUnit.NANOSECONDS.toMillis(roundTripNanos));
+                        }
                     }
                 }
                 default -> { }
@@ -341,11 +352,19 @@ public final class TunnelClient {
     }
 
     private void startHeartbeat() {
+        Thread previousHeartbeat = heartbeatThread;
+        heartbeatThread = null;
+        interrupt(previousHeartbeat);
+        heartbeatTracker.reset();
+        pingMs = -1;
         Thread heartbeat = new Thread(() -> {
-            while (state == State.RUNNING) {
+            while (state == State.RUNNING && heartbeatThread == Thread.currentThread()) {
                 try {
-                    send(Frame.ping(System.nanoTime()));
-                    Thread.sleep(5000);
+                    long sent = System.nanoTime();
+                    heartbeatTracker.expire(sent, HEARTBEAT_TIMEOUT_NANOS);
+                    heartbeatTracker.recordSent(sent, sent);
+                    send(Frame.ping(sent));
+                    Thread.sleep(HEARTBEAT_INTERVAL_MILLIS);
                 } catch (InterruptedException ignored) {
                     return;
                 }
@@ -387,6 +406,8 @@ public final class TunnelClient {
         connectThread = null;
         reconnectThread = null;
         heartbeatThread = null;
+        heartbeatTracker.reset();
+        pingMs = -1;
         closeLocalListener();
         closeAllLocal();
         return detachWebSocket();
@@ -476,4 +497,5 @@ public final class TunnelClient {
     public long txBytes() { return txBytes; }
     public int localPort() { ServerSocket s = localServer; return s == null ? config.localPort : s.getLocalPort(); }
     public long pingMs() { return pingMs; }
+    public int packetLossPercent() { return heartbeatTracker.lossPercent(); }
 }

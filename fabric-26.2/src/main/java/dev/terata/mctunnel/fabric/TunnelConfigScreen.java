@@ -43,6 +43,9 @@ public final class TunnelConfigScreen extends Screen {
             .bounds(listLeft + listWidth - 44, 8, 20, 20).build());
         nextButton = addRenderableWidget(Button.builder(Component.literal(">"), button -> changePage(1))
             .bounds(listLeft + listWidth - 20, 8, 20, 20).build());
+        addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.client_settings"),
+            button -> minecraft.gui.setScreen(new TunnelClientSettingsScreen(this)))
+            .bounds(listLeft, 8, Math.min(110, listWidth / 3), 20).build());
 
         autoConnectButtons.clear();
         int autoWidth = autoButtonWidth();

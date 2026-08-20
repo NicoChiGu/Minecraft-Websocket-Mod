@@ -44,6 +44,9 @@ public final class TunnelConfigScreen extends Screen {
             .dimensions(listLeft + listWidth - 44, 8, 20, 20).build());
         nextButton = addDrawableChild(ButtonWidget.builder(Text.literal(">"), button -> changePage(1))
             .dimensions(listLeft + listWidth - 20, 8, 20, 20).build());
+        addDrawableChild(ButtonWidget.builder(Text.translatable("button.minecraft_websocket_tunnel.client_settings"),
+            button -> client.setScreen(new TunnelClientSettingsScreen(this)))
+            .dimensions(listLeft, 8, Math.min(110, listWidth / 3), 20).build());
 
         autoConnectButtons.clear();
         int autoWidth = autoButtonWidth();

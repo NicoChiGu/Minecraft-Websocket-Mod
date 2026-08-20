@@ -7,9 +7,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public record ServerConfig(String bindHost, int bindPort, String targetHost, int targetPort, String token, String path) {
+public record ServerConfig(String bindHost, int bindPort, String targetHost, int targetPort,
+                           String token, String path, boolean checkForUpdates) {
+    public ServerConfig(String bindHost, int bindPort, String targetHost, int targetPort, String token, String path) {
+        this(bindHost, bindPort, targetHost, targetPort, token, path, true);
+    }
+
     public static ServerConfig defaults() {
-        return new ServerConfig("0.0.0.0", 8080, "127.0.0.1", 25565, "change-me", "/tunnel");
+        return new ServerConfig("0.0.0.0", 8080, "127.0.0.1", 25565, "change-me", "/tunnel", true);
     }
 
     public static ServerConfig load(Path file) throws IOException {
@@ -36,13 +41,21 @@ public record ServerConfig(String bindHost, int bindPort, String targetHost, int
             values.getOrDefault("target-host", d.targetHost()),
             parseInt(values.get("target-port"), d.targetPort()),
             values.getOrDefault("token", d.token()),
-            values.getOrDefault("path", d.path())
+            values.getOrDefault("path", d.path()),
+            parseBoolean(values.get("check-for-updates"), d.checkForUpdates())
         );
     }
 
     private static int parseInt(String value, int fallback) {
         try { return value == null ? fallback : Integer.parseInt(value); }
         catch (NumberFormatException e) { return fallback; }
+    }
+
+    private static boolean parseBoolean(String value, boolean fallback) {
+        if (value == null) return fallback;
+        if ("true".equalsIgnoreCase(value)) return true;
+        if ("false".equalsIgnoreCase(value)) return false;
+        return fallback;
     }
 
     public static String template(ServerConfig c) {
@@ -55,6 +68,7 @@ public record ServerConfig(String bindHost, int bindPort, String targetHost, int
             "target-port = " + c.targetPort(),
             "path = \"" + c.path() + "\"",
             "token = \"" + c.token() + "\"",
+            "check-for-updates = " + c.checkForUpdates(),
             ""
         ));
     }
