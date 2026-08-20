@@ -1,0 +1,10 @@
+# Minecraft WebSocket Tunnel server configuration
+# Expose this WebSocket listener through your CDN/reverse proxy as WSS/443.
+bind-host = "0.0.0.0"
+bind-port = 8080
+
+target-host = "127.0.0.1"
+target-port = 25565
+
+path = "/tunnel"
+token = "replace-with-a-long-random-token"

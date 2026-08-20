@@ -1,0 +1,4 @@
+.gradle-local/
+.gradle-user-home/
+.gradle/
+**/build/
