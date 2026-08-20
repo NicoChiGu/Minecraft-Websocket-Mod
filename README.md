@@ -102,6 +102,23 @@ Other targets can be built the same way:
 
 Artifacts are written under each module's `build/libs/` directory.
 
+## GitHub Actions
+
+The repository includes `.github/workflows/minecraft-mod.yml` at the repository root.
+
+- **Manual build:** open the repository's **Actions** tab, select **Minecraft Mod Build**, and choose **Run workflow**.
+- **Automatic CI:** every branch push and pull request builds Fabric 1.20.1, 1.21.1, and 26.2 in parallel and uploads the installable JARs as workflow artifacts for 14 days.
+- **Tag release:** pushing any Git tag builds all three targets, creates a GitHub Release with generated release notes, and uploads only the installable JARs (not sources JARs). Re-running the same tagged workflow replaces the release assets instead of failing because the release already exists.
+
+For version tags, a leading `v` is stripped from the embedded mod version. For example, pushing `v0.2.0` produces `fabric-26.2-0.2.0.jar` and matching 1.20.1/1.21.1 JARs.
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The release job uses the workflow's built-in `GITHUB_TOKEN` with `contents: write`; no personal access token or release secret is required under normal GitHub repository settings.
+
 ## Current scope
 
 The implementation currently targets Fabric 1.20.1, 1.21.1, and 26.2. Minecraft 26.2 is the primary test target. Its build uses Java 25, Fabric Loader 0.19.3, Loom 1.17, and Fabric API 0.157.0+26.2. The project layout is designed for adding more Minecraft versions and Forge/NeoForge adapters without changing `core`.

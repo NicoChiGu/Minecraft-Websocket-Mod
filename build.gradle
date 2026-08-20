@@ -1,6 +1,11 @@
+def resolvedModVersion = providers.gradleProperty('modVersion')
+    .orElse(providers.environmentVariable('MOD_VERSION'))
+    .orElse('0.1.0')
+    .get()
+
 allprojects {
     group = 'dev.terata.mctunnel'
-    version = '0.1.0'
+    version = resolvedModVersion
 
     repositories {
         mavenCentral()
