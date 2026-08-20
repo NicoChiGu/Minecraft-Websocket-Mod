@@ -11,6 +11,23 @@ public final class ClientConfig {
     public String remoteName = "Minecraft Server";
     public int localPort = 25566;
 
+    public ClientConfig() { }
+
+    public ClientConfig(String gateway, String token, String remoteName, int localPort) {
+        this.gateway = gateway;
+        this.token = token;
+        this.remoteName = remoteName;
+        this.localPort = localPort;
+    }
+
+    public ClientConfig(ClientConfig source) {
+        this(source.gateway, source.token, source.remoteName, source.localPort);
+    }
+
+    public ClientConfig copy() {
+        return new ClientConfig(this);
+    }
+
     public static ClientConfig load(Path file) {
         ClientConfig config = new ClientConfig();
         if (!Files.exists(file)) return config;

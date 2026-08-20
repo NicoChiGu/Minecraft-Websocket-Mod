@@ -8,25 +8,16 @@ import net.minecraft.text.Text;
 public final class TunnelHud {
     private TunnelHud() {}
 
-    public static void render(DrawContext context, float tickDelta) {
+    public static void render(DrawContext context) {
         TunnelClient tunnel = MinecraftTunnelClientMod.tunnel();
-        if (tunnel == null) return;
-
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.textRenderer == null) return;
 
-        int color = switch (tunnel.state()) {
-            case RUNNING -> 0x55FF55;
-            case CONNECTING -> 0xFFFF55;
-            default -> 0xFF5555;
-        };
+        boolean connected = tunnel != null && tunnel.state() == TunnelClient.State.RUNNING;
+        Text line = connected
+            ? Text.translatable("hud.minecraft_websocket_tunnel.connected")
+            : Text.translatable("hud.minecraft_websocket_tunnel.disconnected");
 
-        String latency = tunnel.pingMs() >= 0 ? tunnel.pingMs() + "ms" : "--ms";
-        Text line = Text.literal("Tunnel: " + tunnel.state().name() + " " + latency);
-        Text ip = Text.literal("IP: 127.0.0.1:" + tunnel.localPort());
-
-        int y = 6;
-        context.drawTextWithShadow(client.textRenderer, line, 6, y, color);
-        context.drawTextWithShadow(client.textRenderer, ip, 6, y + 12, 0xFFFFFF);
+        context.drawTextWithShadow(client.textRenderer, line, 6, 6, connected ? 0x55FF55 : 0xFF5555);
     }
 }

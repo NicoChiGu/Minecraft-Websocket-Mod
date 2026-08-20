@@ -26,10 +26,6 @@ jobs:
           - module: fabric-26.2
             java: 25
 
-    defaults:
-      run:
-        working-directory: .
-
     steps:
       - uses: actions/checkout@v4
 
@@ -39,17 +35,17 @@ jobs:
           java-version: ${{ matrix.java }}
 
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
 
       - name: Build
-        run: |
-          cd minecraft-mod
-          ./gradlew :${{ matrix.module }}:build --no-daemon
+        run: gradle :${{ matrix.module }}:build --no-daemon
 
       - name: Upload jar
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.module }}
-          path: minecraft-mod/${{ matrix.module }}/build/libs/*.jar
+          path: ${{ matrix.module }}/build/libs/*.jar
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

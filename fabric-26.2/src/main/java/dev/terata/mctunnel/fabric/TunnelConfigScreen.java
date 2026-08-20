@@ -1,170 +1,218 @@
 package dev.terata.mctunnel.fabric;
 
-import dev.terata.mctunnel.core.ClientConfig;
+import dev.terata.mctunnel.core.ClientProfile;
 import dev.terata.mctunnel.core.TunnelClient;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
-import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class TunnelConfigScreen extends Screen {
+    private static final int ROW_HEIGHT = 28;
     private final Screen parent;
-    private final ClientConfig config;
-    private final Path configPath;
+    private int page;
+    private int listLeft;
+    private int listTop;
+    private int listWidth;
+    private int listBottom;
+    private Button addButton;
+    private Button editButton;
+    private Button deleteButton;
+    private Button connectionButton;
+    private Button previousButton;
+    private Button nextButton;
+    private final List<Button> autoConnectButtons = new ArrayList<>();
 
-    private EditBox gateway;
-    private EditBox token;
-    private EditBox name;
-    private EditBox localPort;
-    private Component message;
-
-    public TunnelConfigScreen(Screen parent, ClientConfig config, Path configPath) {
+    public TunnelConfigScreen(Screen parent) {
         super(Component.translatable("screen.minecraft_websocket_tunnel.title"));
         this.parent = parent;
-        this.config = config;
-        this.configPath = configPath;
     }
 
     @Override
     protected void init() {
-        int fieldWidth = Math.min(360, this.width - 40);
-        int left = (this.width - fieldWidth) / 2;
-        int y = 48;
+        listWidth = Math.max(140, Math.min(380, width - 24));
+        listLeft = (width - listWidth) / 2;
+        listTop = 36;
+        int actionsTop = Math.max(72, height - 72);
+        listBottom = Math.max(listTop + ROW_HEIGHT, actionsTop - 6);
+        previousButton = addRenderableWidget(Button.builder(Component.literal("<"), button -> changePage(-1))
+            .bounds(listLeft + listWidth - 44, 8, 20, 20).build());
+        nextButton = addRenderableWidget(Button.builder(Component.literal(">"), button -> changePage(1))
+            .bounds(listLeft + listWidth - 20, 8, 20, 20).build());
 
-        this.gateway = new EditBox(this.font, left, y, fieldWidth, 20,
-            Component.translatable("field.minecraft_websocket_tunnel.gateway"));
-        this.gateway.setValue(this.config.gateway);
-        this.addRenderableWidget(this.gateway);
-        y += 38;
-
-        this.token = new EditBox(this.font, left, y, fieldWidth, 20,
-            Component.translatable("field.minecraft_websocket_tunnel.token"));
-        this.token.setValue(this.config.token);
-        this.addRenderableWidget(this.token);
-        y += 38;
-
-        this.name = new EditBox(this.font, left, y, fieldWidth, 20,
-            Component.translatable("field.minecraft_websocket_tunnel.display_name"));
-        this.name.setValue(this.config.remoteName);
-        this.addRenderableWidget(this.name);
-        y += 38;
-
-        this.localPort = new EditBox(this.font, left, y, fieldWidth, 20,
-            Component.translatable("field.minecraft_websocket_tunnel.local_port"));
-        this.localPort.setValue(Integer.toString(this.config.localPort));
-        this.addRenderableWidget(this.localPort);
-        y += 38;
-
-        int gap = 6;
-        int buttonWidth = Math.max(65, (fieldWidth - gap * 3) / 4);
-        this.addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.save"), button -> save())
-            .bounds(left, y, buttonWidth, 20).build());
-        this.addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.toggle"), button -> toggle())
-            .bounds(left + buttonWidth + gap, y, buttonWidth, 20).build());
-        this.addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.logs"), button -> openLogs())
-            .bounds(left + (buttonWidth + gap) * 2, y, buttonWidth, 20).build());
-        this.addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.done"), button -> onClose())
-            .bounds(left + (buttonWidth + gap) * 3, y, buttonWidth, 20).build());
-    }
-
-    private boolean applyFields() {
-        this.config.gateway = this.gateway.getValue().trim();
-        this.config.token = this.token.getValue();
-        this.config.remoteName = this.name.getValue().trim();
-
-        if (!this.config.gateway.startsWith("ws://") && !this.config.gateway.startsWith("wss://")) {
-            this.message = Component.translatable("message.minecraft_websocket_tunnel.gateway_invalid");
-            notifyError(this.message);
-            return false;
+        autoConnectButtons.clear();
+        int autoWidth = autoButtonWidth();
+        for (int slot = 0; slot < pageSize(); slot++) {
+            int rowSlot = slot;
+            Button autoButton = addRenderableWidget(Button.builder(
+                    Component.translatable("button.minecraft_websocket_tunnel.enable_auto_connect"),
+                    button -> toggleAutoConnect(rowSlot))
+                .bounds(listLeft + listWidth - autoWidth - 4,
+                    listTop + slot * ROW_HEIGHT + 3, autoWidth, 20)
+                .build());
+            autoConnectButtons.add(autoButton);
         }
 
-        try {
-            int port = Integer.parseInt(this.localPort.getValue().trim());
-            if (port < 1 || port > 65535) throw new NumberFormatException();
-            this.config.localPort = port;
-            return true;
-        } catch (NumberFormatException e) {
-            this.message = Component.translatable("message.minecraft_websocket_tunnel.local_port_invalid");
-            notifyError(this.message);
-            return false;
-        }
+        int gap = 4;
+        int topWidth = (listWidth - gap * 2) / 3;
+        addButton = addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.add_profile"),
+            button -> minecraft.gui.setScreen(new TunnelProfileEditScreen(this, null)))
+            .bounds(listLeft, actionsTop, topWidth, 20).build());
+        editButton = addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.edit_profile"),
+            button -> minecraft.gui.setScreen(new TunnelProfileEditScreen(this, MinecraftTunnelClientMod.selectedProfile())))
+            .bounds(listLeft + topWidth + gap, actionsTop, topWidth, 20).build());
+        deleteButton = addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.delete_profile"),
+            button -> deleteSelected()).bounds(listLeft + (topWidth + gap) * 2, actionsTop, topWidth, 20).build());
+
+        int bottomY = actionsTop + 24;
+        int bottomWidth = (listWidth - gap * 2) / 3;
+        connectionButton = addRenderableWidget(Button.builder(connectionButtonText(), button -> toggleConnection())
+            .bounds(listLeft, bottomY, bottomWidth, 20).build());
+        addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.logs"),
+            button -> minecraft.gui.setScreen(new TunnelLogScreen(this)))
+            .bounds(listLeft + bottomWidth + gap, bottomY, bottomWidth, 20).build());
+        addRenderableWidget(Button.builder(Component.translatable("button.minecraft_websocket_tunnel.done"), button -> onClose())
+            .bounds(listLeft + (bottomWidth + gap) * 2, bottomY, bottomWidth, 20).build());
+        updateControls();
     }
 
-    private void save() {
-        if (!applyFields()) return;
-        try {
-            this.config.save(this.configPath);
-            this.message = Component.translatable("message.minecraft_websocket_tunnel.saved");
-            MinecraftTunnelClientMod.logInfo(this.message);
-        } catch (Exception e) {
-            this.message = Component.translatable("message.minecraft_websocket_tunnel.save_failed", readableMessage(e));
-            notifyError(this.message);
+    @Override public void tick() { updateControls(); }
+
+    private void updateControls() {
+        boolean locked = MinecraftTunnelClientMod.isLocked();
+        if (addButton != null) addButton.active = !locked;
+        if (editButton != null) editButton.active = !locked;
+        if (deleteButton != null) deleteButton.active = !locked && MinecraftTunnelClientMod.profiles().size() > 1;
+        if (connectionButton != null) connectionButton.setMessage(connectionButtonText());
+        int pages = pageCount();
+        if (page >= pages) page = Math.max(0, pages - 1);
+        if (previousButton != null) previousButton.active = page > 0;
+        if (nextButton != null) nextButton.active = page + 1 < pages;
+        List<ClientProfile> profiles = MinecraftTunnelClientMod.profiles();
+        int first = page * pageSize();
+        for (int slot = 0; slot < autoConnectButtons.size(); slot++) {
+            Button button = autoConnectButtons.get(slot);
+            int index = first + slot;
+            button.visible = index < profiles.size();
+            if (!button.visible) continue;
+            boolean enabled = profiles.get(index).id().equals(MinecraftTunnelClientMod.autoConnectProfileId());
+            button.setMessage(Component.translatable(enabled
+                ? "button.minecraft_websocket_tunnel.disable_auto_connect"
+                : "button.minecraft_websocket_tunnel.enable_auto_connect"));
         }
     }
 
-    private void toggle() {
-        if (!applyFields()) return;
-        try {
-            this.config.save(this.configPath);
-            TunnelClient activeTunnel = MinecraftTunnelClientMod.toggle(this.config);
-            this.message = activeTunnel == null
-                ? Component.translatable("message.minecraft_websocket_tunnel.tunnel_stopped")
-                : Component.translatable("message.minecraft_websocket_tunnel.tunnel_running", activeTunnel.localPort());
-        } catch (Exception e) {
-            this.message = Component.translatable("message.minecraft_websocket_tunnel.tunnel_failed", readableMessage(e));
-            notifyError(this.message);
+    private Component connectionButtonText() {
+        TunnelClient active = MinecraftTunnelClientMod.tunnel();
+        if (MinecraftTunnelClientMod.isConnecting()) return Component.translatable("button.minecraft_websocket_tunnel.cancel");
+        return Component.translatable(active != null && active.state() == TunnelClient.State.RUNNING
+            ? "button.minecraft_websocket_tunnel.disconnect" : "button.minecraft_websocket_tunnel.connect");
+    }
+
+    private void toggleConnection() {
+        if (MinecraftTunnelClientMod.isLocked()) MinecraftTunnelClientMod.stopTunnel();
+        else MinecraftTunnelClientMod.startSelected();
+        updateControls();
+    }
+
+    private void deleteSelected() {
+        if (MinecraftTunnelClientMod.deleteSelectedProfile()) {
+            MinecraftTunnelClientMod.setMessage(Component.translatable("message.minecraft_websocket_tunnel.profile_deleted"));
         }
+        updateControls();
     }
 
-    private void openLogs() {
-        this.minecraft.gui.setScreen(new TunnelLogScreen(this));
+    private void toggleAutoConnect(int rowSlot) {
+        int index = page * pageSize() + rowSlot;
+        List<ClientProfile> profiles = MinecraftTunnelClientMod.profiles();
+        if (index >= 0 && index < profiles.size()) {
+            MinecraftTunnelClientMod.toggleAutoConnect(profiles.get(index).id());
+        }
+        updateControls();
     }
 
-    private void notifyError(Component detail) {
-        MinecraftTunnelClientMod.reportError(this.minecraft, detail);
+    private int autoButtonWidth() {
+        return Math.max(56, Math.min(92, listWidth / 3));
     }
 
-    private static String readableMessage(Exception e) {
-        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+    private int profileTextWidth() {
+        return Math.max(20, listWidth - autoButtonWidth() - 18);
     }
 
-    private static Component statusText(TunnelClient tunnel) {
-        if (tunnel == null) return Component.translatable("status.minecraft_websocket_tunnel.stopped");
-        return switch (tunnel.state()) {
-            case STOPPED -> Component.translatable("status.minecraft_websocket_tunnel.stopped");
-            case CONNECTING -> Component.translatable("status.minecraft_websocket_tunnel.connecting");
-            case RUNNING -> Component.translatable("status.minecraft_websocket_tunnel.running", tunnel.localPort());
-            case ERROR -> Component.translatable("status.minecraft_websocket_tunnel.error", tunnel.status());
-        };
+    private int pageSize() { return Math.max(1, (listBottom - listTop) / ROW_HEIGHT); }
+    private int pageCount() { return Math.max(1, (MinecraftTunnelClientMod.profiles().size() + pageSize() - 1) / pageSize()); }
+    private void changePage(int delta) {
+        page = Math.max(0, Math.min(pageCount() - 1, page + delta));
+        updateControls();
+    }
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (super.mouseClicked(event, doubleClick)) return true;
+        if (event.button() == 0 && event.x() >= listLeft && event.x() < listLeft + listWidth
+            && event.y() >= listTop && event.y() < listBottom) {
+            int row = ((int) event.y() - listTop) / ROW_HEIGHT;
+            int index = page * pageSize() + row;
+            List<ClientProfile> profiles = MinecraftTunnelClientMod.profiles();
+            if (index >= 0 && index < profiles.size()) {
+                MinecraftTunnelClientMod.selectProfile(profiles.get(index).id());
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
+        graphics.fill(0, 0, width, height, 0xCC101010);
+        List<ClientProfile> profiles = MinecraftTunnelClientMod.profiles();
+        ClientProfile selected = MinecraftTunnelClientMod.selectedProfile();
+        ClientProfile active = MinecraftTunnelClientMod.activeProfile();
+        int first = page * pageSize();
+        int end = Math.min(profiles.size(), first + pageSize());
+        for (int index = first; index < end; index++) {
+            ClientProfile profile = profiles.get(index);
+            int y = listTop + (index - first) * ROW_HEIGHT;
+            boolean isSelected = profile.id().equals(selected.id());
+            graphics.fill(listLeft, y, listLeft + listWidth, y + ROW_HEIGHT - 2,
+                isSelected ? 0xAA365E86 : 0x880F0F0F);
+            graphics.fill(listLeft, y + ROW_HEIGHT - 3, listLeft + listWidth, y + ROW_HEIGHT - 2, 0xFF3A3A3A);
+            int color = active != null && active.id().equals(profile.id()) ? 0xFF55FF55 : 0xFFFFFFFF;
+            int textWidth = profileTextWidth();
+            graphics.text(font, fit(profile.remoteName(), textWidth), listLeft + 6, y + 4, color, true);
+            String address = profile.gateway() + "  |  127.0.0.1:" + profile.localPort();
+            graphics.text(font, fit(address, textWidth), listLeft + 6, y + 15, 0xFFA0A0A0, true);
+        }
         super.extractRenderState(graphics, mouseX, mouseY, delta);
-
-        int fieldWidth = Math.min(360, this.width - 40);
-        int left = (this.width - fieldWidth) / 2;
-
-        graphics.centeredText(this.font, this.title, this.width / 2, 18, 0xFFFFFFFF);
-        graphics.text(this.font, Component.translatable("field.minecraft_websocket_tunnel.gateway"), left, 37, 0xFFA0A0A0, true);
-        graphics.text(this.font, Component.translatable("field.minecraft_websocket_tunnel.token"), left, 75, 0xFFA0A0A0, true);
-        graphics.text(this.font, Component.translatable("field.minecraft_websocket_tunnel.display_name"), left, 113, 0xFFA0A0A0, true);
-        graphics.text(this.font, Component.translatable("field.minecraft_websocket_tunnel.local_port"), left, 151, 0xFFA0A0A0, true);
-
-        TunnelClient activeTunnel = MinecraftTunnelClientMod.tunnel();
-        graphics.centeredText(this.font, statusText(activeTunnel), this.width / 2, 230, 0xFFFFFFFF);
-        graphics.centeredText(this.font,
-            Component.translatable("hint.minecraft_websocket_tunnel.join", this.config.localPort),
-            this.width / 2, 246, 0xFFA0FFA0);
-
-        if (this.message != null) graphics.centeredText(this.font, this.message, this.width / 2, 264, 0xFFFFD060);
+        graphics.centeredText(font, title, width / 2, 14, 0xFFFFFFFF);
+        int statusY = height - 12;
+        if (MinecraftTunnelClientMod.isConnecting()) drawProgress(graphics, listLeft, statusY - 10, listWidth);
+        graphics.centeredText(font, fit(MinecraftTunnelClientMod.statusText().getString(), Math.max(20, width - 20)),
+            width / 2, statusY, 0xFFFFD060);
     }
 
-    @Override
-    public void onClose() {
-        this.minecraft.gui.setScreen(this.parent);
+    private void drawProgress(GuiGraphicsExtractor graphics, int x, int y, int progressWidth) {
+        graphics.fill(x, y, x + progressWidth, y + 5, 0xFF202020);
+        int segmentCount = Math.max(4, progressWidth / 12);
+        int activeSegment = (int) ((System.currentTimeMillis() / 120L) % segmentCount);
+        int segmentWidth = Math.max(2, (progressWidth - segmentCount + 1) / segmentCount);
+        for (int i = 0; i < segmentCount; i++) {
+            int distance = Math.floorMod(i - activeSegment, segmentCount);
+            int color = distance == 0 ? 0xFF80FF20 : distance == 1 ? 0xFF50C814 : 0xFF17480C;
+            int sx = x + i * (segmentWidth + 1);
+            graphics.fill(sx, y + 1, Math.min(x + progressWidth, sx + segmentWidth), y + 4, color);
+        }
     }
+
+    private Component fit(String value, int maxWidth) {
+        if (font.width(value) <= maxWidth) return Component.literal(value);
+        String suffix = "...";
+        return Component.literal(font.plainSubstrByWidth(value, Math.max(0, maxWidth - font.width(suffix))) + suffix);
+    }
+
+    @Override public void onClose() { minecraft.gui.setScreen(parent); }
 }

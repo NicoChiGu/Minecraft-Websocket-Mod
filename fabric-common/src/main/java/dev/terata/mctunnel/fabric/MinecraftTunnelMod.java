@@ -4,12 +4,18 @@ import dev.terata.mctunnel.core.ServerConfig;
 import dev.terata.mctunnel.core.TunnelServer;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.network.packet.s2c.play.PlayerListS2CPacket;
+import net.minecraft.server.network.ServerPlayerEntity;
 
 import java.nio.file.Path;
+import java.util.EnumSet;
+import java.util.List;
 
 public final class MinecraftTunnelMod implements DedicatedServerModInitializer {
     private static volatile TunnelServer server;
+    private static int tabLatencyTicks;
 
     @Override
     public void onInitializeServer() {
@@ -22,6 +28,7 @@ public final class MinecraftTunnelMod implements DedicatedServerModInitializer {
                 TunnelServer tunnelServer = new TunnelServer(config);
                 tunnelServer.start();
                 server = tunnelServer;
+                tabLatencyTicks = 0;
                 System.out.println("[Minecraft WebSocket Tunnel] Listening on " + config.bindHost() + ":" + config.bindPort()
                     + " -> " + config.targetHost() + ":" + config.targetPort());
             } catch (Exception e) {
@@ -36,6 +43,20 @@ public final class MinecraftTunnelMod implements DedicatedServerModInitializer {
                 tunnelServer.shutdown();
                 server = null;
             }
+        });
+
+        ServerTickEvents.END_SERVER_TICK.register(mcServer -> {
+            if (++tabLatencyTicks < 20) return;
+            tabLatencyTicks = 0;
+            List<ServerPlayerEntity> players = mcServer.getPlayerManager().getPlayerList();
+            if (players.isEmpty()) return;
+            mcServer.getPlayerManager().sendToAll(new PlayerListS2CPacket(
+                EnumSet.of(
+                    PlayerListS2CPacket.Action.UPDATE_DISPLAY_NAME,
+                    PlayerListS2CPacket.Action.UPDATE_LATENCY
+                ),
+                players
+            ));
         });
     }
 }

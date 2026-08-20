@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "dev.terata.mctunnel.fabric.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "minecraft_websocket_tunnel-refmap.json",
+  "mixins": ["ServerPlayerEntityMixin"],
+  "client": [
+    "MultiplayerScreenAccessor",
+    "MultiplayerServerListWidgetAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

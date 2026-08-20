@@ -41,14 +41,43 @@ The client UI follows Minecraft's selected language. Bundled translations curren
 
 Install the matching Fabric API and mod JAR. Open **Multiplayer** and click **WS Tunnel**.
 
-Configure:
+The settings screen stores multiple local tunnel profiles. Existing values from
+`config/minecraft-websocket/client.properties` are imported automatically into
+`client-profiles.properties` the first time the new profile store is loaded.
+Configure each profile with:
 
 - Gateway URL, e.g. `wss://mc.example.com/tunnel`
 - Token
 - Display name
 - Local TCP port, default `25566`
 
-Click **Start / Stop**. The same screen also has a **Logs** button. The in-game log viewer keeps the latest 500 client events in memory and supports older/newer paging and clearing the buffer. Connection failures, unexpected gateway disconnects, invalid settings, and configuration save failures are also shown through Minecraft's native top-right system toast while being retained in the log viewer.
+Select a profile and click **Connect**. Only one profile can be active at a time.
+Connection setup runs off the Minecraft render thread and shows an experience-style
+activity bar; profile editing is locked until the connection is stopped or fails.
+The same screen also has a **Logs** button. Gateway URLs up to 2048 characters are
+accepted, so long WSS host names and paths are not truncated by Minecraft's default
+text-field limit.
+
+Each profile row also has a **Set Auto** button. At most one profile can be marked
+for automatic connection; clicking **Cancel Auto** on that profile disables the
+feature. Minecraft starts the selected tunnel after the client finishes starting,
+without automatically joining the remote Minecraft server. If the initial gateway
+connection fails, the client waits five seconds and retries up to five times.
+
+The normal multiplayer screen keeps one responsive **WS Tunnel** settings button.
+When the selected tunnel is running, an ephemeral WS server entry is pinned above
+the saved server list. It uses the vanilla server status/ping presentation and the
+localized **Quick Connect** action, but is never written to `servers.dat` and cannot
+be edited, deleted, or reordered. While playing, the top-left HUD shows only the
+tunnel connection state in red or green.
+
+On a dedicated server with the mod installed, the Tab player list appends each player's current latency in gray (for example, `Player  42ms`) while preserving existing player names, team formatting, ordering, and the vanilla signal bars. The server refreshes the displayed values once per second.
+
+The in-game log viewer keeps the latest 500 client events in memory and supports older/newer paging and clearing the buffer. Connection failures, invalid settings, and configuration save failures are shown through a dedicated top-right tunnel toast while being retained in the log viewer. If an established gateway connection drops, the client closes the affected local Minecraft sessions and automatically retries up to five times, waiting five seconds before each attempt. One reusable toast counts down each wait instead of stacking notifications. A successful retry restores the local listener; after the fifth failure the tunnel returns to the stopped state and must be connected manually.
+
+When the Minecraft client stops, the mod cancels pending connection or reconnect
+work, closes local tunnel sockets, and waits up to two seconds for the WebSocket
+close handshake before forcing the underlying socket closed.
 
 While running, connect using the normal Minecraft multiplayer UI to:
 

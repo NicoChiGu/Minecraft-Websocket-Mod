@@ -10,6 +10,13 @@ java {
 sourceSets.main.java.srcDir('../fabric-common/src/main/java')
 sourceSets.main.resources.srcDir('../fabric-common/src/main/resources')
 
+loom {
+    mixin {
+        useLegacyMixinAp = true
+        defaultRefmapName = 'minecraft_websocket_tunnel-refmap.json'
+    }
+}
+
 dependencies {
     minecraft 'com.mojang:minecraft:1.20.1'
     mappings 'net.fabricmc:yarn:1.20.1+build.10:v2'
