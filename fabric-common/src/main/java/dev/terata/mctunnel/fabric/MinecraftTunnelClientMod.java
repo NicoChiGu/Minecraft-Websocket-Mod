@@ -471,7 +471,8 @@ public final class MinecraftTunnelClientMod implements ClientModInitializer {
     }
 
     private static String readableMessage(Throwable error) {
-        return error.getMessage() == null || error.getMessage().isBlank()
+        String msg = error.getMessage() == null || error.getMessage().isBlank()
             ? error.getClass().getSimpleName() : error.getMessage();
+        return TunnelClient.sanitizeMessage(msg, 100);
     }
 }

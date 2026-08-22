@@ -453,7 +453,33 @@ public final class TunnelClient {
     }
 
     private static String readableMessage(Exception e) {
-        return e.getMessage() == null || e.getMessage().isBlank() ? e.getClass().getSimpleName() : e.getMessage();
+        String msg = e.getMessage() == null || e.getMessage().isBlank() ? e.getClass().getSimpleName() : e.getMessage();
+        return sanitizeMessage(msg, 120);
+    }
+
+    public static String sanitizeMessage(String raw, int maxLength) {
+        if (raw == null || raw.isBlank()) return "Unknown error";
+        String msg = raw.trim();
+        int newlineIdx = msg.indexOf('\n');
+        if (newlineIdx >= 0) {
+            msg = msg.substring(0, newlineIdx).trim();
+        }
+        int crIdx = msg.indexOf('\r');
+        if (crIdx >= 0) {
+            msg = msg.substring(0, crIdx).trim();
+        }
+        int headersIdx = msg.indexOf("headers:");
+        if (headersIdx > 0) {
+            msg = msg.substring(0, headersIdx).trim();
+        }
+        int metaIdx = msg.indexOf("Metadata(");
+        if (metaIdx > 0) {
+            msg = msg.substring(0, metaIdx).trim();
+        }
+        if (msg.length() > maxLength) {
+            msg = msg.substring(0, maxLength).trim() + "...";
+        }
+        return msg;
     }
 
     private void closeAllLocal() { sockets.values().forEach(TunnelClient::closeSocket); sockets.clear(); }

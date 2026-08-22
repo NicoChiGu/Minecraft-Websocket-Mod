@@ -13,12 +13,20 @@ final class TunnelToastBridge {
     private TunnelToastBridge() { }
 
     static void show(MinecraftClient client, Text title, Text detail, long durationMillis) {
+        Text sanitizedDetail = sanitize(detail);
         client.execute(() -> {
             ToastManager manager = client.getToastManager();
             TunnelToast toast = manager.getToast(TunnelToast.class, TOKEN);
-            if (toast == null) manager.add(new TunnelToast(client, title, detail, durationMillis));
-            else toast.update(title, detail, durationMillis);
+            if (toast == null) manager.add(new TunnelToast(client, title, sanitizedDetail, durationMillis));
+            else toast.update(title, sanitizedDetail, durationMillis);
         });
+    }
+
+    private static Text sanitize(Text text) {
+        if (text == null) return Text.empty();
+        String str = text.getString();
+        String sanitized = dev.terata.mctunnel.core.TunnelClient.sanitizeMessage(str, 90);
+        return sanitized.equals(str) ? text : Text.literal(sanitized);
     }
 
     private static final class TunnelToast implements Toast {

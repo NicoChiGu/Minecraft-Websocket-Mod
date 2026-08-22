@@ -190,6 +190,25 @@ class TunnelClientLifecycleTest {
         }
     }
 
+    @Test
+    void sanitizesLongGrpcAndCloudflareErrors() {
+        String cfError = "UNKNOWN: HTTP status code 530\n" +
+            "invalid content-type: text/plain; charset=UTF-8\n" +
+            "headers:\n" +
+            "Metadata(status=530,date=Sat, 22 Aug 2026 19:58:16 GMT,content-type=text/plain; charset=UTF-8,report-to={\"endpoints\":[{\"url\":\"https:\\/\\/a.nel.cloudflare.com\\/report\\/v4?s=1ep%2FFFjT3TRYUeZA60k5VXh3BCAPT8LLAFvJX2FMXJh5hTClDX2B62L1kpz%2F2FZF6ke%2BtNYAFFLms%2BW5ogB23VbB4R6YbeghaadXEVOAQPrTWRuDPFPND14sqvuqmraMXepmZCwIeVkX%2FkkQ%3D%3D\"}],\"group\":\"cf-nel\",\"max_age\":604800},nel={\"success_fraction\":0,\"report_to\":\"cf-nel\",\"max_age\":604800},x-frame-options=SAMEORIGIN,referrer-policy=same-origin,cache-control=private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0,expires=Thu, 01 Jan 1970 00:00:01 GMT,server=cloudflare,cf-ray=a2f473873e3efeb3-AMS,alt-svc=h3=\":443\"; ma=86400,content-length=16)";
+
+        String result = TunnelClient.sanitizeMessage(cfError, 90);
+        assertEquals("UNKNOWN: HTTP status code 530", result);
+        assertTrue(result.length() <= 90);
+
+        String longSingleLine = "A".repeat(150);
+        String truncated = TunnelClient.sanitizeMessage(longSingleLine, 50);
+        assertEquals("A".repeat(50) + "...", truncated);
+
+        assertEquals("Connection refused", TunnelClient.sanitizeMessage("Connection refused", 90));
+        assertEquals("Unknown error", TunnelClient.sanitizeMessage(null, 90));
+    }
+
     private static WebSocketServer gateway(CountDownLatch started) {
         return gateway(new InetSocketAddress("127.0.0.1", 0), started, null);
     }

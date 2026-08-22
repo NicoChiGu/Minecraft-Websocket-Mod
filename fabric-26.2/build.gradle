@@ -23,7 +23,19 @@ dependencies {
     include 'org.java-websocket:Java-WebSocket:1.5.7'
     include 'io.grpc:grpc-netty-shaded:1.69.1'
     include 'io.grpc:grpc-stub:1.69.1'
-    include 'io.grpc:grpc-protobuf:1.69.1'
+    include 'io.grpc:grpc-api:1.69.1'
+    include 'io.grpc:grpc-core:1.69.1'
+    include 'io.grpc:grpc-util:1.69.1'
+    include 'io.grpc:grpc-context:1.69.1'
+    include 'io.perfmark:perfmark-api:0.27.0'
+    include 'com.google.guava:guava:33.3.1-android'
+    include 'com.google.guava:failureaccess:1.0.2'
+    include 'com.google.code.findbugs:jsr305:3.0.2'
+    include 'com.google.errorprone:error_prone_annotations:2.30.0'
+    include 'org.checkerframework:checker-qual:3.43.0'
+    include 'com.google.j2objc:j2objc-annotations:3.0.0'
+    include 'com.google.android:annotations:4.1.1.4'
+    include 'org.codehaus.mojo:animal-sniffer-annotations:1.24'
 }
 
 processResources {
