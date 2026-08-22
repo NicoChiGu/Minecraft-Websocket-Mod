@@ -317,7 +317,7 @@ public final class ModUpdateService implements AutoCloseable {
         String tag = string(root, "tag_name");
         Version version = parseVersion(tag);
         String normalizedVersion = version.normalized();
-        String expectedAsset = "fabric-" + minecraftTarget + "-" + normalizedVersion + ".jar";
+        String expectedAsset = "mcws-" + minecraftTarget + "-" + normalizedVersion + ".jar";
         JsonArray assets = root.has("assets") && root.get("assets").isJsonArray()
             ? root.getAsJsonArray("assets") : new JsonArray();
         for (JsonElement element : assets) {

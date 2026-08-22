@@ -40,20 +40,20 @@ class ModUpdateServiceTest {
     @Test
     void selectsTheExactMinecraftReleaseAsset() throws Exception {
         String json = releaseJson("v2.4.0", false, false,
-            "fabric-1.20.1-2.4.0.jar", 123L, "sha256:abc");
+            "mcws-1.20.1-2.4.0.jar", 123L, "sha256:abc");
         ModUpdateService.ReleaseInfo info = ModUpdateService.parseRelease(json, "1.20.1");
 
         assertEquals("2.4.0", info.version());
-        assertEquals("fabric-1.20.1-2.4.0.jar", info.assetName());
+        assertEquals("mcws-1.20.1-2.4.0.jar", info.assetName());
         assertEquals(123L, info.size());
     }
 
     @Test
     void rejectsPrereleaseAndMissingTargetAsset() {
         assertThrows(Exception.class, () -> ModUpdateService.parseRelease(
-            releaseJson("v2.4.0", false, true, "fabric-1.20.1-2.4.0.jar", 1L, null), "1.20.1"));
+            releaseJson("v2.4.0", false, true, "mcws-1.20.1-2.4.0.jar", 1L, null), "1.20.1"));
         assertThrows(Exception.class, () -> ModUpdateService.parseRelease(
-            releaseJson("v2.4.0", false, false, "fabric-26.2-2.4.0.jar", 1L, null), "1.20.1"));
+            releaseJson("v2.4.0", false, false, "mcws-26.2-2.4.0.jar", 1L, null), "1.20.1"));
     }
 
     @Test
@@ -83,7 +83,7 @@ class ModUpdateServiceTest {
                     respond(exchange, 200, jarBytes);
                 } else {
                     respond(exchange, 200, releaseJson("v2.0.0", false, false,
-                        "fabric-1.20.1-2.0.0.jar", jarBytes.length, null, base + "/asset"));
+                        "mcws-1.20.1-2.0.0.jar", jarBytes.length, null, base + "/asset"));
                 }
             });
             try (ModUpdateService service = service(server, "/latest")) {
@@ -107,7 +107,7 @@ class ModUpdateServiceTest {
             server.createContext("/proxy/", exchange -> respond(exchange, 200, content));
             try (ModUpdateService service = service(server, "/latest")) {
                 ModUpdateService.ReleaseInfo release = new ModUpdateService.ReleaseInfo("v2.0.0", "2.0.0",
-                    "fabric-1.20.1-2.0.0.jar", URI.create(base(server) + "/asset"), content.length + 1L, null);
+                    "mcws-1.20.1-2.0.0.jar", URI.create(base(server) + "/asset"), content.length + 1L, null);
                 assertThrows(IOException.class, () -> service.downloadRelease(release,
                     temporaryDirectory.resolve("wrong-size.jar")));
             }
@@ -224,7 +224,7 @@ class ModUpdateServiceTest {
 
     private ModUpdateService.ReleaseInfo releaseFor(Path path, String version, String digest) throws IOException {
         return new ModUpdateService.ReleaseInfo("v" + version, version,
-            "fabric-1.20.1-" + version + ".jar", path.toUri(), Files.size(path), digest);
+            "mcws-1.20.1-" + version + ".jar", path.toUri(), Files.size(path), digest);
     }
 
     private Path writeModJar(String name, String id, String version, String target) throws IOException {

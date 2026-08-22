@@ -7,6 +7,10 @@ java {
     withSourcesJar()
 }
 
+base {
+    archivesName = 'mcws-1.20.1'
+}
+
 sourceSets.main.java.srcDir('../fabric-common/src/main/java')
 sourceSets.main.resources.srcDir('../fabric-common/src/main/resources')
 

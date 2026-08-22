@@ -171,7 +171,7 @@ The repository includes `.github/workflows/build-release.yml` at the repository 
 - **Automatic CI:** every branch push and pull request builds Fabric 1.20.1, 1.21.1, and 26.2 in parallel and uploads the installable JARs as workflow artifacts for 14 days.
 - **Tag release:** pushing any Git tag builds all three targets, creates a GitHub Release with generated release notes, and uploads only the installable JARs (not sources JARs). Re-running the same tagged workflow replaces the release assets instead of failing because the release already exists.
 
-For version tags, a leading `v` is stripped from the embedded mod version. For example, pushing `v0.2.0` produces `fabric-26.2-0.2.0.jar` and matching 1.20.1/1.21.1 JARs.
+For version tags, a leading `v` is stripped from the embedded mod version. For example, pushing `v0.2.0` produces `mcws-26.2-0.2.0.jar` and matching 1.20.1/1.21.1 JARs.
 
 ```powershell
 git tag v0.2.0
