@@ -6,6 +6,7 @@
   "description": "Transparent Minecraft TCP over WebSocket tunnel for client and server.",
   "authors": ["Terata"],
   "license": "MIT",
+  "icon": "assets/minecraft_websocket_tunnel/icon.png",
   "environment": "*",
   "entrypoints": {
     "server": ["dev.terata.mctunnel.fabric.MinecraftTunnelMod"],
