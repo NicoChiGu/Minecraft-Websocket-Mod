@@ -132,6 +132,60 @@ class ServerConfigTest {
     }
 
     @Test
+    void canParseTomlSectionHeaderSyntax() throws Exception {
+        Path file = temporaryDirectory.resolve("config.toml");
+        String content = String.join("\n",
+            "target-host = \"127.0.0.1\"",
+            "target-port = 25565",
+            "",
+            "[listener.1]",
+            "mode = \"websocket\"",
+            "bind-port = 8080",
+            "token = \"ws-tok\"",
+            "",
+            "[listener.2]",
+            "mode = \"grpc\"",
+            "bind-port = 50051",
+            "token = \"grpc-tok\""
+        );
+        Files.writeString(file, content);
+
+        ServerConfig config = ServerConfig.load(file);
+        assertEquals(2, config.listeners().size());
+        assertEquals(8080, config.listeners().get(0).bindPort());
+        assertTrue(config.listeners().get(0).isWebSocket());
+        assertEquals(50051, config.listeners().get(1).bindPort());
+        assertTrue(config.listeners().get(1).isGrpc());
+    }
+
+    @Test
+    void canParseTomlArrayOfTablesSyntax() throws Exception {
+        Path file = temporaryDirectory.resolve("config.toml");
+        String content = String.join("\n",
+            "target-host = \"127.0.0.1\"",
+            "target-port = 25565",
+            "",
+            "[[listener]]",
+            "mode = \"websocket\"",
+            "bind-port = 8080",
+            "token = \"ws-tok\"",
+            "",
+            "[[listener]]",
+            "mode = \"grpc\"",
+            "bind-port = 50051",
+            "token = \"grpc-tok\""
+        );
+        Files.writeString(file, content);
+
+        ServerConfig config = ServerConfig.load(file);
+        assertEquals(2, config.listeners().size());
+        assertEquals(8080, config.listeners().get(0).bindPort());
+        assertTrue(config.listeners().get(0).isWebSocket());
+        assertEquals(50051, config.listeners().get(1).bindPort());
+        assertTrue(config.listeners().get(1).isGrpc());
+    }
+
+    @Test
     void detectsDuplicateBindPorts() {
         ServerConfig config = new ServerConfig(
             "websocket", "0.0.0.0", 8080, "127.0.0.1", 25565, "tok", "/tunnel", true,
@@ -148,7 +202,6 @@ class ServerConfigTest {
     @Test
     void listenerOrderingIsDeterministicByNumericId() throws Exception {
         Path file = temporaryDirectory.resolve("config.toml");
-        // Put listener 10 before listener 2 in file text
         String content = String.join("\n",
             "listener.10.mode = \"grpc\"",
             "listener.10.bind-port = 50051",

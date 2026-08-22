@@ -1,6 +1,7 @@
 package dev.terata.mctunnel.fabric;
 
 import dev.terata.mctunnel.core.GrpcTunnelServer;
+import dev.terata.mctunnel.core.ListenerConfig;
 import dev.terata.mctunnel.core.ServerConfig;
 import dev.terata.mctunnel.core.TunnelServer;
 import net.fabricmc.api.DedicatedServerModInitializer;
@@ -8,19 +9,21 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 
 public final class MinecraftTunnelMod implements DedicatedServerModInitializer {
-    private static volatile TunnelServer wsServer;
-    private static volatile GrpcTunnelServer grpcServer;
+    private record ActiveListener(String label, Runnable shutdownAction) { }
+
+    private static final List<ActiveListener> activeListeners = new ArrayList<>();
     private static volatile FabricUpdateSupport updateSupport;
     private static int tabLatencyTicks;
 
@@ -40,20 +43,44 @@ public final class MinecraftTunnelMod implements DedicatedServerModInitializer {
                     .resolve("minecraft-websocket")
                     .resolve("config.toml");
                 ServerConfig config = ServerConfig.load(configPath);
-                if (config.isGrpcMode() || config.isBothMode()) {
-                    GrpcTunnelServer gServer = new GrpcTunnelServer(config);
-                    gServer.start();
-                    grpcServer = gServer;
-                    System.out.println("[Minecraft Tunnel] Mode: gRPC. Listening on " + config.bindHost() + ":" + config.bindPort()
-                        + " -> " + config.targetHost() + ":" + config.targetPort());
+                List<String> validationErrors = config.validate();
+                if (!validationErrors.isEmpty()) {
+                    for (String err : validationErrors) {
+                        System.err.println("[Minecraft Tunnel] Configuration error: " + err);
+                    }
                 }
-                if (config.isWebSocketMode() || config.isBothMode()) {
-                    TunnelServer tunnelServer = new TunnelServer(config);
-                    tunnelServer.start();
-                    wsServer = tunnelServer;
-                    System.out.println("[Minecraft Tunnel] Mode: WebSocket. Listening on " + config.bindHost() + ":" + config.bindPort()
-                        + " -> " + config.targetHost() + ":" + config.targetPort());
+
+                synchronized (activeListeners) {
+                    activeListeners.clear();
+                    for (ListenerConfig listener : config.listeners()) {
+                        try {
+                            if (listener.isGrpc()) {
+                                GrpcTunnelServer gServer = new GrpcTunnelServer(listener, config.targetHost(), config.targetPort());
+                                gServer.start();
+                                activeListeners.add(new ActiveListener(listener.label(), gServer::shutdown));
+                                System.out.println("[Minecraft Tunnel] Mode: gRPC. Listening on "
+                                    + listener.bindHost() + ":" + listener.bindPort()
+                                    + " -> " + config.targetHost() + ":" + config.targetPort());
+                            } else if (listener.isWebSocket()) {
+                                TunnelServer tunnelServer = new TunnelServer(listener, config.targetHost(), config.targetPort());
+                                tunnelServer.start();
+                                activeListeners.add(new ActiveListener(listener.label(), tunnelServer::shutdown));
+                                System.out.println("[Minecraft Tunnel] Mode: WebSocket. Listening on "
+                                    + listener.bindHost() + ":" + listener.bindPort()
+                                    + " (path: " + listener.path() + ") -> "
+                                    + config.targetHost() + ":" + config.targetPort());
+                            } else {
+                                System.err.println("[Minecraft Tunnel] Unknown mode: " + listener.mode()
+                                    + " for listener " + listener.label());
+                            }
+                        } catch (Exception listenerError) {
+                            System.err.println("[Minecraft Tunnel] Failed to start listener " + listener.label()
+                                + ": " + listenerError.getMessage());
+                            listenerError.printStackTrace();
+                        }
+                    }
                 }
+
                 tabLatencyTicks = 0;
                 try {
                     updateSupport = FabricUpdateSupport.create(MinecraftTunnelVersion.TARGET);
@@ -69,15 +96,15 @@ public final class MinecraftTunnelMod implements DedicatedServerModInitializer {
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(mcServer -> {
-            TunnelServer tunnelServer = wsServer;
-            if (tunnelServer != null) {
-                tunnelServer.shutdown();
-                wsServer = null;
-            }
-            GrpcTunnelServer gServer = grpcServer;
-            if (gServer != null) {
-                gServer.shutdown();
-                grpcServer = null;
+            synchronized (activeListeners) {
+                for (ActiveListener listener : activeListeners) {
+                    try {
+                        listener.shutdownAction().run();
+                    } catch (Exception e) {
+                        System.err.println("[Minecraft Tunnel] Error shutting down " + listener.label() + ": " + e.getMessage());
+                    }
+                }
+                activeListeners.clear();
             }
             FabricUpdateSupport updates = updateSupport;
             updateSupport = null;

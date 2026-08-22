@@ -8,10 +8,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public record ServerConfig(String mode, String bindHost, int bindPort, String targetHost, int targetPort,
                            String token, String path, boolean checkForUpdates,
                            List<ListenerConfig> listeners) {
+
+    private static final Pattern LISTENER_SECTION_PATTERN =
+        Pattern.compile("^\\[+listener[s]?\\.(\\d+)\\]+$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern LISTENER_ARRAY_PATTERN =
+        Pattern.compile("^\\[\\[listener[s]?\\]\\]$", Pattern.CASE_INSENSITIVE);
 
     public ServerConfig {
         listeners = listeners == null ? List.of() : List.copyOf(listeners);
@@ -56,16 +63,49 @@ public record ServerConfig(String mode, String bindHost, int bindPort, String ta
             return defaults();
         }
         Map<String, String> values = new HashMap<>();
+        String currentSectionPrefix = "";
+        int arrayIndex = 0;
+
         for (String raw : Files.readAllLines(file)) {
             String line = raw.split("#", 2)[0].trim();
-            if (line.isEmpty() || line.startsWith("[")) continue;
+            if (line.isEmpty()) continue;
+
+            // Handle TOML headers: [listener.1], [[listener]], [global], etc.
+            if (line.startsWith("[")) {
+                Matcher arrayMatcher = LISTENER_ARRAY_PATTERN.matcher(line);
+                if (arrayMatcher.matches()) {
+                    arrayIndex++;
+                    currentSectionPrefix = "listener." + arrayIndex + ".";
+                    continue;
+                }
+
+                Matcher sectionMatcher = LISTENER_SECTION_PATTERN.matcher(line);
+                if (sectionMatcher.matches()) {
+                    int sectionId = Integer.parseInt(sectionMatcher.group(1));
+                    currentSectionPrefix = "listener." + sectionId + ".";
+                    continue;
+                }
+
+                // Other generic table headers like [server] or [target]
+                currentSectionPrefix = "";
+                continue;
+            }
+
             int eq = line.indexOf('=');
             if (eq < 0) continue;
             String key = line.substring(0, eq).trim();
             String value = line.substring(eq + 1).trim();
-            if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) value = value.substring(1, value.length() - 1);
-            values.put(key, value);
+            if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
+                value = value.substring(1, value.length() - 1);
+            }
+
+            if (!key.startsWith("listener.") && !currentSectionPrefix.isEmpty()) {
+                values.put(currentSectionPrefix + key, value);
+            } else {
+                values.put(key, value);
+            }
         }
+
         ServerConfig d = defaults();
         String mode = values.getOrDefault("mode", d.mode());
         String bindHost = values.getOrDefault("bind-host", d.bindHost());
@@ -173,34 +213,24 @@ public record ServerConfig(String mode, String bindHost, int bindPort, String ta
     public static String template(ServerConfig c) {
         return String.join("\n", List.of(
             "# Minecraft Tunnel server configuration",
-            "# Service mode: \"websocket\" or \"grpc\"",
-            "mode = \"" + c.mode() + "\"",
-            "",
-            "# Put your CDN/reverse proxy in front of bind-port and expose it as WSS/443 or gRPC/443.",
-            "bind-host = \"" + c.bindHost() + "\"",
-            "bind-port = " + c.bindPort(),
-            "",
+            "# Target Minecraft server address (global)",
             "target-host = \"" + c.targetHost() + "\"",
             "target-port = " + c.targetPort(),
-            "",
-            "path = \"" + c.path() + "\"",
-            "token = \"" + c.token() + "\"",
             "check-for-updates = " + c.checkForUpdates(),
             "",
-            "# Multi-listener support (optional):",
-            "# When listener.N.* keys are present, the top-level mode/bind-*/path/token are ignored",
-            "# for listener creation and only target-host/target-port/check-for-updates remain global.",
-            "#",
-            "# listener.1.mode = \"websocket\"",
-            "# listener.1.bind-host = \"0.0.0.0\"",
-            "# listener.1.bind-port = 8080",
-            "# listener.1.path = \"/tunnel\"",
-            "# listener.1.token = \"ws-token\"",
-            "#",
+            "# Multi-listener setup (supports both WebSocket and gRPC or multiple tokens):",
+            "# Listener 1 (WebSocket):",
+            "listener.1.mode = \"websocket\"",
+            "listener.1.bind-host = \"" + c.bindHost() + "\"",
+            "listener.1.bind-port = " + c.bindPort(),
+            "listener.1.path = \"" + c.path() + "\"",
+            "listener.1.token = \"" + c.token() + "\"",
+            "",
+            "# Listener 2 (gRPC):",
             "# listener.2.mode = \"grpc\"",
             "# listener.2.bind-host = \"0.0.0.0\"",
             "# listener.2.bind-port = 50051",
-            "# listener.2.token = \"grpc-token\"",
+            "# listener.2.token = \"grpc-secret-token\"",
             ""
         ));
     }
