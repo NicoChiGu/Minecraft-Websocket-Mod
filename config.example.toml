@@ -1,14 +1,40 @@
 # Minecraft Tunnel server configuration
-# Service mode: "websocket" or "grpc"
-mode = "websocket"
-
-# Put your CDN/reverse proxy in front of bind-port and expose it as WSS/443 or gRPC/443.
-bind-host = "0.0.0.0"
-bind-port = 8080
-
+# Target Minecraft server address (global)
 target-host = "127.0.0.1"
 target-port = 25565
-
-path = "/tunnel"
-token = "replace-with-a-long-random-token"
 check-for-updates = true
+
+# ===================================================================
+# Single listener (legacy format - simple setup):
+# ===================================================================
+# mode = "websocket"  # "websocket" or "grpc"
+# bind-host = "0.0.0.0"
+# bind-port = 8080
+# path = "/tunnel"
+# token = "replace-with-a-long-random-token"
+
+# ===================================================================
+# Multi-listener (supports running WebSocket + gRPC or multiple tokens):
+# When listener.N.* keys are defined, they take priority over top-level
+# mode/bind-*/path/token settings.
+# ===================================================================
+
+# Listener 1: WebSocket endpoint
+listener.1.mode = "websocket"
+listener.1.bind-host = "0.0.0.0"
+listener.1.bind-port = 8080
+listener.1.path = "/tunnel"
+listener.1.token = "replace-with-ws-token-1"
+
+# Listener 2: WebSocket endpoint with different token or path
+# listener.2.mode = "websocket"
+# listener.2.bind-host = "0.0.0.0"
+# listener.2.bind-port = 8081
+# listener.2.path = "/tunnel-vip"
+# listener.2.token = "replace-with-ws-token-2"
+
+# Listener 3: gRPC endpoint on a dedicated port
+# listener.3.mode = "grpc"
+# listener.3.bind-host = "0.0.0.0"
+# listener.3.bind-port = 50051
+# listener.3.token = "replace-with-grpc-token"

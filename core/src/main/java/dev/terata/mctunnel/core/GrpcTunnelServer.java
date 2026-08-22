@@ -20,23 +20,35 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public final class GrpcTunnelServer {
-    private final ServerConfig config;
+    private final ListenerConfig listener;
+    private final String targetHost;
+    private final int targetPort;
     private Server server;
 
+    public GrpcTunnelServer(ListenerConfig listener, String targetHost, int targetPort) {
+        this.listener = listener;
+        this.targetHost = targetHost;
+        this.targetPort = targetPort;
+    }
+
+    /** Legacy constructor for backward compatibility with existing callers. */
     public GrpcTunnelServer(ServerConfig config) {
-        this.config = config;
+        this(config.listeners().isEmpty()
+                ? new ListenerConfig(config.mode(), config.bindHost(), config.bindPort(), config.path(), config.token())
+                : config.listeners().get(0),
+            config.targetHost(), config.targetPort());
     }
 
     public synchronized void start() throws IOException {
         if (server != null) return;
         ServerServiceDefinition serviceDefinition = ServerServiceDefinition.builder(GrpcProtocol.SERVICE_NAME)
             .addMethod(GrpcProtocol.TUNNEL_METHOD, ServerCalls.asyncBidiStreamingCall((responseObserver) ->
-                new GrpcSessionHandler(config, responseObserver)))
+                new GrpcSessionHandler(targetHost, targetPort, responseObserver)))
             .build();
 
-        server = NettyServerBuilder.forAddress(new InetSocketAddress(config.bindHost(), config.bindPort()))
+        server = NettyServerBuilder.forAddress(new InetSocketAddress(listener.bindHost(), listener.bindPort()))
             .addService(serviceDefinition)
-            .intercept(new AuthInterceptor(config.token()))
+            .intercept(new AuthInterceptor(listener.token()))
             .keepAliveTime(30, TimeUnit.SECONDS)
             .keepAliveTimeout(10, TimeUnit.SECONDS)
             .permitKeepAliveWithoutCalls(true)
@@ -60,7 +72,7 @@ public final class GrpcTunnelServer {
     }
 
     public int getPort() {
-        return server == null ? config.bindPort() : server.getPort();
+        return server == null ? listener.bindPort() : server.getPort();
     }
 
     private static final class AuthInterceptor implements ServerInterceptor {
@@ -102,13 +114,15 @@ public final class GrpcTunnelServer {
     }
 
     private static final class GrpcSessionHandler implements StreamObserver<Frame> {
-        private final ServerConfig config;
+        private final String targetHost;
+        private final int targetPort;
         private final StreamObserver<Frame> responseObserver;
         private final Map<Integer, Socket> sockets = new ConcurrentHashMap<>();
         private volatile boolean closed;
 
-        GrpcSessionHandler(ServerConfig config, StreamObserver<Frame> responseObserver) {
-            this.config = config;
+        GrpcSessionHandler(String targetHost, int targetPort, StreamObserver<Frame> responseObserver) {
+            this.targetHost = targetHost;
+            this.targetPort = targetPort;
             this.responseObserver = responseObserver;
         }
 
@@ -139,7 +153,7 @@ public final class GrpcTunnelServer {
             if (sockets.containsKey(id)) return;
             Socket socket = new Socket();
             socket.setTcpNoDelay(true);
-            socket.connect(new InetSocketAddress(config.targetHost(), config.targetPort()), 5000);
+            socket.connect(new InetSocketAddress(targetHost, targetPort), 5000);
             sockets.put(id, socket);
             Thread reader = new Thread(() -> pumpTarget(id, socket), "mc-grpc-server-" + id);
             reader.setDaemon(true);

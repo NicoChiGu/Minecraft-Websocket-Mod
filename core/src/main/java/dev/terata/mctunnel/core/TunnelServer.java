@@ -13,14 +13,26 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class TunnelServer extends WebSocketServer {
-    private final ServerConfig config;
+    private final ListenerConfig listener;
+    private final String targetHost;
+    private final int targetPort;
     private final Map<WebSocket, Map<Integer, Socket>> sessions = new ConcurrentHashMap<>();
 
-    public TunnelServer(ServerConfig config) {
-        super(new InetSocketAddress(config.bindHost(), config.bindPort()));
-        this.config = config;
+    public TunnelServer(ListenerConfig listener, String targetHost, int targetPort) {
+        super(new InetSocketAddress(listener.bindHost(), listener.bindPort()));
+        this.listener = listener;
+        this.targetHost = targetHost;
+        this.targetPort = targetPort;
         setReuseAddr(true);
         setConnectionLostTimeout(30);
+    }
+
+    /** Legacy constructor for backward compatibility with existing callers. */
+    public TunnelServer(ServerConfig config) {
+        this(config.listeners().isEmpty()
+                ? new ListenerConfig(config.mode(), config.bindHost(), config.bindPort(), config.path(), config.token())
+                : config.listeners().get(0),
+            config.targetHost(), config.targetPort());
     }
 
     @Override
@@ -35,10 +47,10 @@ public final class TunnelServer extends WebSocketServer {
     private boolean authorized(ClientHandshake handshake) {
         try {
             URI uri = URI.create("ws://localhost" + handshake.getResourceDescriptor());
-            if (!config.path().equals(uri.getPath())) return false;
+            if (!listener.path().equals(uri.getPath())) return false;
             String authorization = handshake.getFieldValue("Authorization");
             if (authorization == null || !authorization.startsWith("Bearer ")) return false;
-            return constantTimeEquals(config.token(), authorization.substring("Bearer ".length()));
+            return constantTimeEquals(listener.token(), authorization.substring("Bearer ".length()));
         } catch (Exception e) {
             return false;
         }
@@ -87,7 +99,7 @@ public final class TunnelServer extends WebSocketServer {
         if (sockets.containsKey(id)) return;
         Socket socket = new Socket();
         socket.setTcpNoDelay(true);
-        socket.connect(new InetSocketAddress(config.targetHost(), config.targetPort()), 5000);
+        socket.connect(new InetSocketAddress(targetHost, targetPort), 5000);
         sockets.put(id, socket);
         Thread reader = new Thread(() -> pumpTarget(conn, sockets, id, socket), "mc-wss-server-" + id);
         reader.setDaemon(true);
