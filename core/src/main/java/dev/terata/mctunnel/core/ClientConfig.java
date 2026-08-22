@@ -50,6 +50,14 @@ public final class ClientConfig {
         p.setProperty("token", token);
         p.setProperty("remoteName", remoteName);
         p.setProperty("localPort", Integer.toString(localPort));
-        try (var out = Files.newOutputStream(file)) { p.store(out, "Minecraft WebSocket Tunnel client configuration"); }
+        try (var out = Files.newOutputStream(file)) { p.store(out, "Minecraft Tunnel client configuration"); }
+    }
+
+    public boolean isGrpc() {
+        return gateway != null && (gateway.startsWith("grpc://") || gateway.startsWith("grpcs://"));
+    }
+
+    public String protocolName() {
+        return isGrpc() ? "gRPC" : "WebSocket";
     }
 }

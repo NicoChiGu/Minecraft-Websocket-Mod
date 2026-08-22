@@ -7,14 +7,30 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public record ServerConfig(String bindHost, int bindPort, String targetHost, int targetPort,
+public record ServerConfig(String mode, String bindHost, int bindPort, String targetHost, int targetPort,
                            String token, String path, boolean checkForUpdates) {
+    public ServerConfig(String bindHost, int bindPort, String targetHost, int targetPort, String token, String path, boolean checkForUpdates) {
+        this("websocket", bindHost, bindPort, targetHost, targetPort, token, path, checkForUpdates);
+    }
+
     public ServerConfig(String bindHost, int bindPort, String targetHost, int targetPort, String token, String path) {
-        this(bindHost, bindPort, targetHost, targetPort, token, path, true);
+        this("websocket", bindHost, bindPort, targetHost, targetPort, token, path, true);
     }
 
     public static ServerConfig defaults() {
-        return new ServerConfig("0.0.0.0", 8080, "127.0.0.1", 25565, "change-me", "/tunnel", true);
+        return new ServerConfig("websocket", "0.0.0.0", 8080, "127.0.0.1", 25565, "change-me", "/tunnel", true);
+    }
+
+    public boolean isGrpcMode() {
+        return "grpc".equalsIgnoreCase(mode);
+    }
+
+    public boolean isWebSocketMode() {
+        return "websocket".equalsIgnoreCase(mode) || "ws".equalsIgnoreCase(mode);
+    }
+
+    public boolean isBothMode() {
+        return "both".equalsIgnoreCase(mode) || "all".equalsIgnoreCase(mode);
     }
 
     public static ServerConfig load(Path file) throws IOException {
@@ -36,6 +52,7 @@ public record ServerConfig(String bindHost, int bindPort, String targetHost, int
         }
         ServerConfig d = defaults();
         return new ServerConfig(
+            values.getOrDefault("mode", d.mode()),
             values.getOrDefault("bind-host", d.bindHost()),
             parseInt(values.get("bind-port"), d.bindPort()),
             values.getOrDefault("target-host", d.targetHost()),
@@ -60,8 +77,11 @@ public record ServerConfig(String bindHost, int bindPort, String targetHost, int
 
     public static String template(ServerConfig c) {
         return String.join("\n", List.of(
-            "# Minecraft WebSocket Tunnel server configuration",
-            "# Put your CDN/reverse proxy in front of bind-port and expose it as WSS/443.",
+            "# Minecraft Tunnel server configuration",
+            "# Service mode: \"websocket\" or \"grpc\"",
+            "mode = \"" + c.mode() + "\"",
+            "",
+            "# Put your CDN/reverse proxy in front of bind-port and expose it as WSS/443 or gRPC/443.",
             "bind-host = \"" + c.bindHost() + "\"",
             "bind-port = " + c.bindPort(),
             "target-host = \"" + c.targetHost() + "\"",

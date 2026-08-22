@@ -18,6 +18,8 @@ public final class TunnelProfileEditScreen extends Screen {
     private String draftToken;
     private String draftName;
     private String draftPort;
+    private boolean isGrpc;
+    private ButtonWidget protocolButton;
     private TextFieldWidget gateway;
     private TextFieldWidget token;
     private TextFieldWidget name;
@@ -34,27 +36,33 @@ public final class TunnelProfileEditScreen extends Screen {
         draftToken = config.token;
         draftName = config.remoteName;
         draftPort = Integer.toString(config.localPort);
+        isGrpc = draftGateway.startsWith("grpc://") || draftGateway.startsWith("grpcs://");
     }
 
     @Override
     protected void init() {
         int contentWidth = Math.max(140, Math.min(420, width - 28));
         int left = (width - contentWidth) / 2;
-        boolean compactColumns = width >= 200 && height < 220;
+        boolean compactColumns = width >= 200 && height < 230;
         if (compactColumns) {
             int columnWidth = (contentWidth - 6) / 2;
-            gateway = field(left, 42, columnWidth, Text.translatable("field.minecraft_websocket_tunnel.gateway"), draftGateway, 2048);
-            token = field(left + columnWidth + 6, 42, columnWidth,
+            protocolButton = addDrawableChild(ButtonWidget.builder(protocolButtonText(), b -> toggleProtocol())
+                .dimensions(left, 36, columnWidth, 20).build());
+            gateway = field(left + columnWidth + 6, 36, columnWidth, Text.translatable("field.minecraft_websocket_tunnel.gateway"), draftGateway, 2048);
+            token = field(left, 76, columnWidth,
                 Text.translatable("field.minecraft_websocket_tunnel.token"), draftToken, 4096);
-            name = field(left, 82, columnWidth,
+            name = field(left + columnWidth + 6, 76, columnWidth,
                 Text.translatable("field.minecraft_websocket_tunnel.display_name"), draftName, 128);
-            localPort = field(left + columnWidth + 6, 82, columnWidth,
+            localPort = field(left, 116, columnWidth,
                 Text.translatable("field.minecraft_websocket_tunnel.local_port"), draftPort, 5);
         } else {
             int fieldWidth = Math.min(360, contentWidth);
             left = (width - fieldWidth) / 2;
-            int step = Math.max(31, Math.min(36, (height - 72) / 4));
-            int y = 38;
+            int step = Math.max(30, Math.min(34, (height - 80) / 5));
+            int y = 34;
+            protocolButton = addDrawableChild(ButtonWidget.builder(protocolButtonText(), b -> toggleProtocol())
+                .dimensions(left, y, fieldWidth, 20).build());
+            y += step;
             gateway = field(left, y, fieldWidth, Text.translatable("field.minecraft_websocket_tunnel.gateway"), draftGateway, 2048);
             y += step;
             token = field(left, y, fieldWidth, Text.translatable("field.minecraft_websocket_tunnel.token"), draftToken, 4096);
@@ -65,18 +73,53 @@ public final class TunnelProfileEditScreen extends Screen {
             contentWidth = fieldWidth;
         }
 
-        int buttonY = height - 38;
+        int buttonY = height - 36;
         int buttonWidth = (contentWidth - 4) / 2;
         ButtonWidget save = addDrawableChild(ButtonWidget.builder(Text.translatable("button.minecraft_websocket_tunnel.save"), b -> save())
             .dimensions(left, buttonY, buttonWidth, 20).build());
         addDrawableChild(ButtonWidget.builder(Text.translatable("button.minecraft_websocket_tunnel.cancel"), b -> close())
             .dimensions(left + buttonWidth + 4, buttonY, buttonWidth, 20).build());
         boolean editable = !MinecraftTunnelClientMod.isLocked();
+        protocolButton.active = editable;
         gateway.setEditable(editable);
         token.setEditable(editable);
         name.setEditable(editable);
         localPort.setEditable(editable);
         save.active = editable;
+    }
+
+    private Text protocolButtonText() {
+        return Text.translatable("field.minecraft_websocket_tunnel.protocol", isGrpc ? "gRPC" : "WebSocket");
+    }
+
+    private void toggleProtocol() {
+        captureDraft();
+        isGrpc = !isGrpc;
+        if (protocolButton != null) {
+            protocolButton.setMessage(protocolButtonText());
+        }
+        if (gateway != null) {
+            String current = draftGateway.trim();
+            if (isGrpc) {
+                if (current.startsWith("wss://")) {
+                    current = "grpcs://" + current.substring("wss://".length());
+                } else if (current.startsWith("ws://")) {
+                    current = "grpc://" + current.substring("ws://".length());
+                } else if (!current.startsWith("grpc://") && !current.startsWith("grpcs://")) {
+                    current = "grpcs://127.0.0.1:8080";
+                }
+            } else {
+                if (current.startsWith("grpcs://")) {
+                    current = "wss://" + current.substring("grpcs://".length());
+                } else if (current.startsWith("grpc://")) {
+                    current = "ws://" + current.substring("grpc://".length());
+                } else if (!current.startsWith("ws://") && !current.startsWith("wss://")) {
+                    current = "ws://127.0.0.1:8080/tunnel";
+                }
+            }
+            draftGateway = current;
+            gateway.setText(current);
+        }
     }
 
     private TextFieldWidget field(int left, int y, int fieldWidth, Text label, String value, int maxLength) {
@@ -93,6 +136,7 @@ public final class TunnelProfileEditScreen extends Screen {
         draftToken = token.getText();
         draftName = name.getText();
         draftPort = localPort.getText();
+        isGrpc = draftGateway.startsWith("grpc://") || draftGateway.startsWith("grpcs://");
     }
 
     @Override
@@ -105,7 +149,9 @@ public final class TunnelProfileEditScreen extends Screen {
         captureDraft();
         String gatewayValue = draftGateway.trim();
         String nameValue = draftName.trim();
-        if (!gatewayValue.startsWith("ws://") && !gatewayValue.startsWith("wss://")) {
+        boolean validWs = gatewayValue.startsWith("ws://") || gatewayValue.startsWith("wss://");
+        boolean validGrpc = gatewayValue.startsWith("grpc://") || gatewayValue.startsWith("grpcs://");
+        if (!validWs && !validGrpc) {
             fail(Text.translatable("message.minecraft_websocket_tunnel.gateway_invalid"));
             return;
         }
@@ -137,18 +183,18 @@ public final class TunnelProfileEditScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fill(0, 0, width, height, 0xCC101010);
         super.render(context, mouseX, mouseY, delta);
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xFFFFFF);
-        drawLabel(context, gateway, "field.minecraft_websocket_tunnel.gateway");
-        drawLabel(context, token, "field.minecraft_websocket_tunnel.token");
-        drawLabel(context, name, "field.minecraft_websocket_tunnel.display_name");
-        drawLabel(context, localPort, "field.minecraft_websocket_tunnel.local_port");
+        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 12, 0xFFFFFF);
+        if (gateway != null) drawLabel(context, gateway, "field.minecraft_websocket_tunnel.gateway");
+        if (token != null) drawLabel(context, token, "field.minecraft_websocket_tunnel.token");
+        if (name != null) drawLabel(context, name, "field.minecraft_websocket_tunnel.display_name");
+        if (localPort != null) drawLabel(context, localPort, "field.minecraft_websocket_tunnel.local_port");
         Text status = fit(MinecraftTunnelClientMod.statusText().getString(), Math.max(20, width - 20));
-        context.drawCenteredTextWithShadow(textRenderer, status, width / 2, height - 14, 0xFFD060);
+        context.drawCenteredTextWithShadow(textRenderer, status, width / 2, height - 12, 0xFFD060);
     }
 
     private void drawLabel(DrawContext context, TextFieldWidget field, String key) {
         context.drawTextWithShadow(textRenderer,
-            fit(Text.translatable(key).getString(), field.getWidth()), field.getX(), field.getY() - 10, 0xA0A0A0);
+            fit(Text.translatable(key).getString(), field.getWidth()), field.getX(), field.getY() - 9, 0xA0A0A0);
     }
 
     private Text fit(String value, int maxWidth) {

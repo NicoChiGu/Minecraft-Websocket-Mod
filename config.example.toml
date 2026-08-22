@@ -1,5 +1,8 @@
-# Minecraft WebSocket Tunnel server configuration
-# Expose this WebSocket listener through your CDN/reverse proxy as WSS/443.
+# Minecraft Tunnel server configuration
+# Service mode: "websocket" or "grpc"
+mode = "websocket"
+
+# Put your CDN/reverse proxy in front of bind-port and expose it as WSS/443 or gRPC/443.
 bind-host = "0.0.0.0"
 bind-port = 8080
 

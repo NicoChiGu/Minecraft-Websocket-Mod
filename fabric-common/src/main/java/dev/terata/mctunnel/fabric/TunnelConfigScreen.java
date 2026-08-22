@@ -200,7 +200,8 @@ public final class TunnelConfigScreen extends Screen {
             context.fill(listLeft, y + ROW_HEIGHT - 3, listLeft + listWidth, y + ROW_HEIGHT - 2, 0xFF3A3A3A);
             int color = active != null && active.id().equals(profile.id()) ? 0x55FF55 : 0xFFFFFF;
             int textWidth = profileTextWidth();
-            context.drawTextWithShadow(textRenderer, fit(profile.remoteName(), textWidth), listLeft + 6, y + 4, color);
+            String displayName = "[" + profile.protocolCode() + "] " + profile.remoteName();
+            context.drawTextWithShadow(textRenderer, fit(displayName, textWidth), listLeft + 6, y + 4, color);
             String address = profile.gateway() + "  |  127.0.0.1:" + profile.localPort();
             context.drawTextWithShadow(textRenderer, fit(address, textWidth), listLeft + 6, y + 15, 0xA0A0A0);
         }

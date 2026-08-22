@@ -1,5 +1,6 @@
 package dev.terata.mctunnel.fabric;
 
+import dev.terata.mctunnel.core.GrpcTunnelServer;
 import dev.terata.mctunnel.core.ServerConfig;
 import dev.terata.mctunnel.core.TunnelServer;
 import net.fabricmc.api.DedicatedServerModInitializer;
@@ -18,7 +19,8 @@ import java.util.EnumSet;
 import java.util.List;
 
 public final class MinecraftTunnelMod implements DedicatedServerModInitializer {
-    private static volatile TunnelServer server;
+    private static volatile TunnelServer wsServer;
+    private static volatile GrpcTunnelServer grpcServer;
     private static volatile FabricUpdateSupport updateSupport;
     private static int tabLatencyTicks;
 
@@ -38,30 +40,44 @@ public final class MinecraftTunnelMod implements DedicatedServerModInitializer {
                     .resolve("minecraft-websocket")
                     .resolve("config.toml");
                 ServerConfig config = ServerConfig.load(configPath);
-                TunnelServer tunnelServer = new TunnelServer(config);
-                tunnelServer.start();
-                server = tunnelServer;
+                if (config.isGrpcMode() || config.isBothMode()) {
+                    GrpcTunnelServer gServer = new GrpcTunnelServer(config);
+                    gServer.start();
+                    grpcServer = gServer;
+                    System.out.println("[Minecraft Tunnel] Mode: gRPC. Listening on " + config.bindHost() + ":" + config.bindPort()
+                        + " -> " + config.targetHost() + ":" + config.targetPort());
+                }
+                if (config.isWebSocketMode() || config.isBothMode()) {
+                    TunnelServer tunnelServer = new TunnelServer(config);
+                    tunnelServer.start();
+                    wsServer = tunnelServer;
+                    System.out.println("[Minecraft Tunnel] Mode: WebSocket. Listening on " + config.bindHost() + ":" + config.bindPort()
+                        + " -> " + config.targetHost() + ":" + config.targetPort());
+                }
                 tabLatencyTicks = 0;
-                System.out.println("[Minecraft WebSocket Tunnel] Listening on " + config.bindHost() + ":" + config.bindPort()
-                    + " -> " + config.targetHost() + ":" + config.targetPort());
                 try {
                     updateSupport = FabricUpdateSupport.create(MinecraftTunnelVersion.TARGET);
                     if (config.checkForUpdates()) checkForUpdates(mcServer);
                 } catch (Exception updateError) {
-                    System.err.println("[Minecraft WebSocket Tunnel] Update service unavailable: "
+                    System.err.println("[Minecraft Tunnel] Update service unavailable: "
                         + FabricUpdateSupport.readableMessage(updateError));
                 }
             } catch (Exception e) {
-                System.err.println("[Minecraft WebSocket Tunnel] Failed to start server tunnel: " + e.getMessage());
+                System.err.println("[Minecraft Tunnel] Failed to start server tunnel: " + e.getMessage());
                 e.printStackTrace();
             }
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(mcServer -> {
-            TunnelServer tunnelServer = server;
+            TunnelServer tunnelServer = wsServer;
             if (tunnelServer != null) {
                 tunnelServer.shutdown();
-                server = null;
+                wsServer = null;
+            }
+            GrpcTunnelServer gServer = grpcServer;
+            if (gServer != null) {
+                gServer.shutdown();
+                grpcServer = null;
             }
             FabricUpdateSupport updates = updateSupport;
             updateSupport = null;

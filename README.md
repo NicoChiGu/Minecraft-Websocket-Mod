@@ -1,42 +1,46 @@
-# Minecraft WebSocket Tunnel Mod
+# Minecraft Tunnel Mod (WebSocket / gRPC)
 
-A transparent Minecraft TCP <-> WebSocket tunnel. The tunnel does not parse Minecraft packets, so protocol changes between Minecraft versions stay outside the tunnel core.
+A transparent Minecraft TCP <-> WebSocket & gRPC tunnel. The tunnel does not parse Minecraft packets, so protocol changes between Minecraft versions stay outside the tunnel core.
 
-## Modules
+## Architecture
 
-- `core`: Minecraft-independent binary tunnel protocol and TCP/WebSocket bridge.
+- **WebSocket Mode**: `Minecraft Client TCP <-> WS Tunnel Client <-> CDN / Reverse Proxy (WSS) <-> WS Tunnel Server <-> Minecraft Server TCP`
+- **gRPC Mode**: `Minecraft Client TCP <-> gRPC Tunnel Client <-> CDN / Reverse Proxy (gRPC/HTTP2) <-> gRPC Tunnel Server <-> Minecraft Server TCP`
+
+## Modules & Minecraft Version Support
+
+- `core`: Minecraft-independent binary tunnel protocol, transport abstraction (WebSocket & gRPC), and TCP bridge.
 - `fabric-common`: shared Fabric client/server adapter source.
-- `fabric-1.20.1`: Fabric build for Minecraft 1.20.1 / Java 17.
-- `fabric-1.21.1`: Fabric build for Minecraft 1.21.1 / Java 21.
-- `fabric-26.2`: primary test build for Minecraft 26.2 / Java 25. This module has a dedicated thin GUI adapter because 26.2 moved to Mojang's unobfuscated names and reorganized the screen APIs.
+- `fabric-1.20.1`: Fabric build supporting Minecraft **1.20.x** (1.20, 1.20.1, 1.20.2, 1.20.4, 1.20.6) / Java 17.
+- `fabric-1.21.1`: Fabric build supporting Minecraft **1.21.x** (1.21, 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.11) / Java 21.
+- `fabric-26.2`: Fabric build supporting Minecraft **26.x** (26.1, 26.2, etc.) / Java 21+.
 
-Each version produces one mod JAR that can be installed on both the client and the dedicated server. The tunnel core is shared; Minecraft-specific code is intentionally thin. The dedicated-server tunnel is registered through Fabric's `server` entrypoint, so it is not started by the physical client or by singleplayer/integrated servers.
-
-## Server
-
-Install the matching Fabric API and the generated mod JAR. On first server start the mod creates:
-
-`config/minecraft-websocket/config.toml`
-
-Example:
-
-```toml
-bind-host = "0.0.0.0"
-bind-port = 8080
-target-host = "127.0.0.1"
-target-port = 25565
-path = "/tunnel"
-token = "replace-with-a-long-random-token"
-check-for-updates = true
-```
-
-The WebSocket listener is plain `ws://` by default. Put a TLS-capable CDN/reverse proxy in front of it and publish, for example, `wss://mc.example.com/tunnel` on port 443. Keep the origin listener private whenever possible.
-
-The token is sent in the WebSocket `Authorization: Bearer ...` header, not in the URL.
+Each version produces one mod JAR that can be installed on both the client and the dedicated server.
 
 ## Languages
 
-The client UI follows Minecraft's selected language. Bundled translations currently include English (`en_us`), Simplified Chinese (`zh_cn`), Traditional Chinese (`zh_tw`), Japanese (`ja_jp`), Korean (`ko_kr`), German (`de_de`), French (`fr_fr`), Spanish (`es_es`), Russian (`ru_ru`), and Brazilian Portuguese (`pt_br`).
+The client UI automatically follows Minecraft's selected language. Bundled translations currently include:
+- English (`en_us`)
+- Simplified Chinese (`zh_cn`)
+- Traditional Chinese (`zh_tw`)
+- Japanese (`ja_jp`)
+- Korean (`ko_kr`)
+- German (`de_de`)
+- French (`fr_fr`)
+- Spanish (`es_es`)
+- Brazilian Portuguese (`pt_br`)
+- Russian (`ru_ru`)
+- Italian (`it_it`)
+- Polish (`pl_pl`)
+- Turkish (`tr_tr`)
+- Vietnamese (`vi_vn`)
+- Indonesian (`id_id`)
+- Ukrainian (`uk_ua`)
+- Dutch (`nl_nl`)
+- Czech (`cs_cz`)
+- Hungarian (`hu_hu`)
+- Thai (`th_th`)
+- Swedish (`sv_se`)
 
 ## Client
 

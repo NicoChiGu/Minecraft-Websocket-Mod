@@ -29,9 +29,12 @@ dependencies {
     implementation project(':core')
     include project(':core')
     include 'org.java-websocket:Java-WebSocket:1.5.7'
+    include 'io.grpc:grpc-netty-shaded:1.69.1'
+    include 'io.grpc:grpc-stub:1.69.1'
+    include 'io.grpc:grpc-protobuf:1.69.1'
 }
 
 processResources {
     inputs.property 'version', project.version
-    filesMatching('fabric.mod.json') { expand(version: project.version, minecraft_dependency: '1.21.1') }
+    filesMatching('fabric.mod.json') { expand(version: project.version, minecraft_dependency: '>=1.21 <=1.21.11') }
 }

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,5 +33,17 @@ class ServerConfigTest {
     void legacyConstructorKeepsUpdateChecksEnabled() {
         ServerConfig config = new ServerConfig("0.0.0.0", 8080, "127.0.0.1", 25565, "token", "/tunnel");
         assertTrue(config.checkForUpdates());
+        assertTrue(config.isWebSocketMode());
+        assertFalse(config.isGrpcMode());
+    }
+
+    @Test
+    void canParseGrpcMode() throws Exception {
+        Path file = temporaryDirectory.resolve("config.toml");
+        Files.writeString(file, "mode = \"grpc\"\nbind-port = 50051\n");
+        ServerConfig config = ServerConfig.load(file);
+        assertTrue(config.isGrpcMode());
+        assertFalse(config.isWebSocketMode());
+        assertEquals("grpc", config.mode());
     }
 }

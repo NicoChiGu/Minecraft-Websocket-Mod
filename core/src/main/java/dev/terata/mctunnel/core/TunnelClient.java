@@ -1,9 +1,5 @@
 package dev.terata.mctunnel.core;
 
-import org.java_websocket.client.WebSocketClient;
-import org.java_websocket.framing.CloseFrame;
-import org.java_websocket.handshake.ServerHandshake;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -45,7 +41,7 @@ public final class TunnelClient {
     private final HeartbeatTracker heartbeatTracker = new HeartbeatTracker(HEARTBEAT_WINDOW_SIZE);
     private volatile State state = State.STOPPED;
     private volatile String status = "Stopped";
-    private volatile WebSocketClient ws;
+    private volatile ITunnelTransport transport;
     private volatile ServerSocket localServer;
     private volatile long rxBytes;
     private volatile long txBytes;
@@ -122,11 +118,9 @@ public final class TunnelClient {
         connectThread = caller;
         try {
             URI uri = URI.create(config.gateway);
-            WebSocketClient nextWebSocket = createWebSocket(uri);
-            ws = nextWebSocket;
-            if (!nextWebSocket.connectBlocking(10, TimeUnit.SECONDS)) {
-                throw new IOException("Gateway connection timeout");
-            }
+            ITunnelTransport nextTransport = createTransport(uri);
+            transport = nextTransport;
+            nextTransport.connect(10, TimeUnit.SECONDS);
             if (stopRequested) throw new IOException("Connection stopped");
 
             ServerSocket nextLocalServer = new ServerSocket();
@@ -134,7 +128,7 @@ public final class TunnelClient {
                 nextLocalServer.setReuseAddress(true);
                 nextLocalServer.bind(new InetSocketAddress("127.0.0.1", config.localPort));
                 if (stopRequested) throw new IOException("Connection stopped");
-                if (!nextWebSocket.isOpen()) throw new IOException("Gateway closed during connection setup");
+                if (!nextTransport.isOpen()) throw new IOException("Gateway closed during connection setup");
                 localServer = nextLocalServer;
             } catch (Exception e) {
                 try { nextLocalServer.close(); } catch (IOException ignored) { }
@@ -145,27 +139,42 @@ public final class TunnelClient {
         }
     }
 
-    private WebSocketClient createWebSocket(URI uri) {
-        WebSocketClient client = new WebSocketClient(uri) {
-            @Override public void onOpen(ServerHandshake handshake) { status = "Gateway connected"; }
-            @Override public void onMessage(String message) { }
-            @Override public void onMessage(ByteBuffer bytes) { handleFrame(bytes); }
-            @Override public void onClose(int code, String reason, boolean remote) {
-                handleGatewayClose(this, code, reason);
+    private ITunnelTransport createTransport(URI uri) {
+        ITunnelTransport.Listener listener = new ITunnelTransport.Listener() {
+            @Override
+            public void onTransportOpen() {
+                status = "Gateway connected";
             }
-            @Override public void onError(Exception ex) {
-                if (this == ws && !stopRequested && state != State.STOPPED) status = readableMessage(ex);
+
+            @Override
+            public void onFrameReceived(Frame frame) {
+                handleFrame(frame);
+            }
+
+            @Override
+            public void onTransportClose(int code, String reason) {
+                handleGatewayClose(code, reason);
+            }
+
+            @Override
+            public void onTransportError(Exception ex) {
+                if (!stopRequested && state != State.STOPPED) {
+                    status = readableMessage(ex);
+                }
             }
         };
-        client.addHeader("Authorization", "Bearer " + config.token);
-        client.setConnectionLostTimeout(30);
-        return client;
+
+        if (config.isGrpc()) {
+            return new GrpcTunnelTransport(uri, config.token, listener);
+        } else {
+            return new WebSocketTunnelTransport(uri, config.token, listener);
+        }
     }
 
     private void startAcceptLoop() {
         ServerSocket listener = localServer;
         if (listener == null) return;
-        Thread accept = new Thread(() -> acceptLoop(listener), "mc-wss-client-accept");
+        Thread accept = new Thread(() -> acceptLoop(listener), "mc-client-accept");
         accept.setDaemon(true);
         accept.start();
     }
@@ -178,7 +187,7 @@ public final class TunnelClient {
                 int id = nextId();
                 sockets.put(id, socket);
                 send(Frame.open(id));
-                Thread reader = new Thread(() -> pumpLocal(id, socket), "mc-wss-client-" + id);
+                Thread reader = new Thread(() -> pumpLocal(id, socket), "mc-client-" + id);
                 reader.setDaemon(true);
                 reader.start();
             } catch (IOException e) {
@@ -190,8 +199,8 @@ public final class TunnelClient {
         }
     }
 
-    private void handleGatewayClose(WebSocketClient source, int code, String reason) {
-        if (source != ws || stopRequested || state == State.STOPPED) return;
+    private void handleGatewayClose(int code, String reason) {
+        if (stopRequested || state == State.STOPPED) return;
         String detail = reason == null || reason.isBlank() ? "code " + code : reason;
         if (state == State.RUNNING) beginReconnect("Gateway disconnected: " + detail);
     }
@@ -208,7 +217,7 @@ public final class TunnelClient {
         closeLocalListener();
         closeAllLocal();
 
-        Thread retry = new Thread(this::reconnectLoop, "mc-wss-client-reconnect");
+        Thread retry = new Thread(this::reconnectLoop, "mc-client-reconnect");
         retry.setDaemon(true);
         reconnectThread = retry;
         retry.start();
@@ -316,14 +325,13 @@ public final class TunnelClient {
         } finally {
             sockets.remove(id, socket);
             closeSocket(socket);
-            if (ws != null && ws.isOpen()) send(Frame.close(id));
+            ITunnelTransport t = transport;
+            if (t != null && t.isOpen()) send(Frame.close(id));
         }
     }
 
-    private void handleFrame(ByteBuffer bytes) {
-        final Frame frame;
-        try { frame = FrameCodec.decode(bytes); }
-        catch (RuntimeException e) { return; }
+    private void handleFrame(Frame frame) {
+        if (frame == null) return;
         try {
             switch (frame.type()) {
                 case DATA -> {
@@ -374,31 +382,32 @@ public final class TunnelClient {
                     return;
                 }
             }
-        }, "mc-wss-heartbeat");
+        }, "mc-heartbeat");
         heartbeat.setDaemon(true);
         heartbeatThread = heartbeat;
         heartbeat.start();
     }
 
     private void send(Frame frame) {
-        WebSocketClient client = ws;
-        if (client != null && client.isOpen()) client.send(FrameCodec.encode(frame));
+        ITunnelTransport t = transport;
+        if (t != null && t.isOpen()) t.send(frame);
     }
 
     public void stop() {
-        WebSocketClient client = prepareStop();
-        closeWebSocket(client);
+        ITunnelTransport t = prepareStop();
+        if (t != null) t.close();
     }
 
-    /** Stops the tunnel and waits up to the supplied timeout for the WebSocket close handshake. */
+    /** Stops the tunnel and waits up to the supplied timeout for transport closure. */
     public boolean stopAndAwait(long timeout, TimeUnit unit) {
         if (timeout < 0) throw new IllegalArgumentException("Timeout cannot be negative");
         if (unit == null) throw new IllegalArgumentException("Time unit is required");
-        WebSocketClient client = prepareStop();
-        return closeWebSocketAndAwait(client, timeout, unit);
+        ITunnelTransport t = prepareStop();
+        if (t == null) return true;
+        return t.closeAndAwait(timeout, unit);
     }
 
-    private WebSocketClient prepareStop() {
+    private ITunnelTransport prepareStop() {
         synchronized (lifecycleLock) {
             stopRequested = true;
             state = State.STOPPED;
@@ -415,68 +424,22 @@ public final class TunnelClient {
         pingMs = -1;
         closeLocalListener();
         closeAllLocal();
-        return detachWebSocket();
+        return detachTransport();
     }
 
     private void shutdownTransport() {
         closeLocalListener();
         closeAllLocal();
-        closeWebSocket(detachWebSocket());
+        ITunnelTransport t = detachTransport();
+        if (t != null) t.close();
     }
 
-    private WebSocketClient detachWebSocket() {
+    private ITunnelTransport detachTransport() {
         synchronized (lifecycleLock) {
-            WebSocketClient client = ws;
-            ws = null;
-            return client;
+            ITunnelTransport t = transport;
+            transport = null;
+            return t;
         }
-    }
-
-    private static void closeWebSocket(WebSocketClient client) {
-        if (client == null) return;
-        boolean established = client.isOpen() || client.isClosing();
-        try { client.close(CloseFrame.GOING_AWAY, "Client stopping"); }
-        catch (RuntimeException ignored) { }
-        if (!established && !client.isClosed()) forceCloseWebSocket(client);
-    }
-
-    private static boolean closeWebSocketAndAwait(WebSocketClient client, long timeout, TimeUnit unit) {
-        if (client == null || client.isClosed()) return true;
-        boolean established = client.isOpen() || client.isClosing();
-        boolean forced = !established;
-        try { client.close(CloseFrame.GOING_AWAY, "Client stopping"); }
-        catch (RuntimeException ignored) { }
-        if (!established) forceCloseWebSocket(client);
-
-        long timeoutNanos = unit.toNanos(timeout);
-        long deadline = System.nanoTime() + timeoutNanos;
-        boolean interrupted = false;
-        while (!client.isClosed() && System.nanoTime() - deadline < 0) {
-            long remainingNanos = deadline - System.nanoTime();
-            long sleepMillis = Math.max(1L, Math.min(10L, TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
-            try {
-                Thread.sleep(sleepMillis);
-            } catch (InterruptedException ignored) {
-                interrupted = true;
-                break;
-            }
-        }
-        boolean graceful = client.isClosed();
-        if (!graceful) {
-            forced = true;
-            forceCloseWebSocket(client);
-        }
-        if (interrupted) Thread.currentThread().interrupt();
-        return graceful && !forced;
-    }
-
-    private static void forceCloseWebSocket(WebSocketClient client) {
-        try {
-            Socket socket = client.getSocket();
-            if (socket != null) socket.close();
-        } catch (IOException | RuntimeException ignored) { }
-        try { client.closeConnection(CloseFrame.ABNORMAL_CLOSE, "Client stopping"); }
-        catch (RuntimeException ignored) { }
     }
 
     private void closeLocalListener() {
