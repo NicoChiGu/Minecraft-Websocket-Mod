@@ -75,4 +75,28 @@ class HeartbeatTrackerTest {
         assertEquals(0, tracker.completedSamples());
         assertEquals(0, tracker.pendingSamples());
     }
+
+    @Test
+    void calculatesDynamicLossPercentAndRecoversWhenPacketsSucceed() {
+        HeartbeatTracker tracker = new HeartbeatTracker(10);
+        // Send 10 packets, 2 are lost
+        for (long token = 1; token <= 10; token++) {
+            tracker.recordSent(token, token * 1000L);
+            if (token == 3 || token == 7) {
+                tracker.expire(token * 1000L + 2000L, 1500L); // expired (lost)
+            } else {
+                tracker.recordPong(token, token * 1000L + 50L); // success
+            }
+        }
+        assertEquals(20, tracker.lossPercent());
+        assertEquals(10, tracker.completedSamples());
+
+        // Send 10 more successful packets, rolling out the previous losses
+        for (long token = 11; token <= 20; token++) {
+            tracker.recordSent(token, token * 1000L);
+            tracker.recordPong(token, token * 1000L + 30L);
+        }
+        assertEquals(0, tracker.lossPercent());
+        assertEquals(10, tracker.completedSamples());
+    }
 }

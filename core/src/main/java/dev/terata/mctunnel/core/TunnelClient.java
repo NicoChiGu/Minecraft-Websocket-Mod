@@ -30,9 +30,10 @@ public final class TunnelClient {
 
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long RECONNECT_DELAY_MILLIS = 5_000L;
-    private static final long HEARTBEAT_INTERVAL_MILLIS = 5_000L;
-    private static final long HEARTBEAT_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(10L);
-    private static final int HEARTBEAT_WINDOW_SIZE = 20;
+    private static final long HEARTBEAT_INTERVAL_MILLIS = 1_000L;
+    private static final long HEARTBEAT_BASE_TIMEOUT_NANOS = TimeUnit.MILLISECONDS.toNanos(1_500L);
+    private static final long HEARTBEAT_MAX_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(5L);
+    private static final int HEARTBEAT_WINDOW_SIZE = 15;
     private static final ReconnectListener NOOP_RECONNECT_LISTENER = new ReconnectListener() { };
 
     private final ClientConfig config;
@@ -361,7 +362,11 @@ public final class TunnelClient {
             while (state == State.RUNNING && heartbeatThread == Thread.currentThread()) {
                 try {
                     long sent = System.nanoTime();
-                    heartbeatTracker.expire(sent, HEARTBEAT_TIMEOUT_NANOS);
+                    long currentPing = pingMs;
+                    long timeoutNanos = currentPing > 0
+                        ? Math.min(HEARTBEAT_MAX_TIMEOUT_NANOS, Math.max(HEARTBEAT_BASE_TIMEOUT_NANOS, TimeUnit.MILLISECONDS.toNanos(currentPing * 3)))
+                        : HEARTBEAT_BASE_TIMEOUT_NANOS;
+                    heartbeatTracker.expire(sent, timeoutNanos);
                     heartbeatTracker.recordSent(sent, sent);
                     send(Frame.ping(sent));
                     Thread.sleep(HEARTBEAT_INTERVAL_MILLIS);
