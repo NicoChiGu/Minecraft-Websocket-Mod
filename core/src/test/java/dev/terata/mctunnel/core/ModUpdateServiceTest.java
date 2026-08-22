@@ -38,6 +38,32 @@ class ModUpdateServiceTest {
     }
 
     @Test
+    void comparesMultiSegmentAndFixVersions() {
+        assertTrue(ModUpdateService.compareVersions("1.0.0.1.1", "1.0.0.1") > 0);
+        assertTrue(ModUpdateService.compareVersions("1.0.0.1", "1.0.0") > 0);
+        assertTrue(ModUpdateService.compareVersions("1.0.0_fix", "1.0.0") > 0);
+        assertTrue(ModUpdateService.compareVersions("1.0.0_fix2", "1.0.0_fix") > 0);
+        assertTrue(ModUpdateService.compareVersions("1.0.0_fix2", "1.0.0_fix1") > 0);
+        assertEquals(0, ModUpdateService.compareVersions("v1.0.0_fix", "1.0.0_fix"));
+        assertEquals(0, ModUpdateService.compareVersions("v1.0.0.1.1", "1.0.0.1.1"));
+    }
+
+    @Test
+    void selectsReleaseAssetWithFixOrMultiSegmentTag() throws Exception {
+        String jsonFix = releaseJson("v1.0.0_fix", false, false,
+            "mcws-1.20.1-1.0.0_fix.jar", 456L, "sha256:def");
+        ModUpdateService.ReleaseInfo infoFix = ModUpdateService.parseRelease(jsonFix, "1.20.1");
+        assertEquals("1.0.0_fix", infoFix.version());
+        assertEquals("mcws-1.20.1-1.0.0_fix.jar", infoFix.assetName());
+
+        String jsonMulti = releaseJson("v1.0.0.1.1", false, false,
+            "mcws-1.20.1-1.0.0.1.1.jar", 789L, "sha256:789");
+        ModUpdateService.ReleaseInfo infoMulti = ModUpdateService.parseRelease(jsonMulti, "1.20.1");
+        assertEquals("1.0.0.1.1", infoMulti.version());
+        assertEquals("mcws-1.20.1-1.0.0.1.1.jar", infoMulti.assetName());
+    }
+
+    @Test
     void selectsTheExactMinecraftReleaseAsset() throws Exception {
         String json = releaseJson("v2.4.0", false, false,
             "mcws-1.20.1-2.4.0.jar", 123L, "sha256:abc");

@@ -44,8 +44,6 @@ public final class ModUpdateService implements AutoCloseable {
     public static final String PROXY_PREFIX = "https://gh-proxy.org/";
     private static final long MAX_DOWNLOAD_BYTES = 64L * 1024L * 1024L;
     private static final int MAX_API_BYTES = 1024 * 1024;
-    private static final Pattern SEMVER = Pattern.compile(
-        "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-([0-9A-Za-z.-]+))?(?:\\+[0-9A-Za-z.-]+)?$");
     private static final String MOD_ID = "minecraft_websocket_tunnel";
 
     public record ReleaseInfo(String tag, String version, String assetName, URI downloadUri,
@@ -356,10 +354,49 @@ public final class ModUpdateService implements AutoCloseable {
     }
 
     private static Version parseVersion(String raw) {
-        Matcher matcher = SEMVER.matcher(raw == null ? "" : raw.trim());
-        if (!matcher.matches()) throw new IllegalArgumentException("Invalid semantic version: " + raw);
-        return new Version(Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2)),
-            Integer.parseInt(matcher.group(3)), matcher.group(4));
+        if (raw == null) {
+            throw new IllegalArgumentException("Version string cannot be null");
+        }
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) {
+            throw new IllegalArgumentException("Version string cannot be empty");
+        }
+        String normalized = trimmed;
+        if ((normalized.startsWith("v") || normalized.startsWith("V")) && normalized.length() > 1) {
+            char next = normalized.charAt(1);
+            if (Character.isDigit(next) || next == '.' || next == '_' || next == '-') {
+                normalized = normalized.substring(1).trim();
+            }
+        }
+        if (normalized.isEmpty() || !normalized.matches("^[0-9A-Za-z][0-9A-Za-z._+-]*$")) {
+            throw new IllegalArgumentException("Invalid version format: " + raw);
+        }
+
+        String core = normalized;
+        int plusIndex = core.indexOf('+');
+        if (plusIndex >= 0) {
+            core = core.substring(0, plusIndex);
+        }
+
+        Matcher matcher = Pattern.compile("^([0-9]+(?:\\.[0-9]+)*)(.*)$").matcher(core);
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Version must start with a number: " + raw);
+        }
+
+        String digitsPart = matcher.group(1);
+        String suffixPart = matcher.group(2);
+
+        String[] digitStrings = digitsPart.split("\\.");
+        List<Integer> numericParts = new ArrayList<>();
+        for (String s : digitStrings) {
+            try {
+                numericParts.add(Integer.parseInt(s));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid numeric segment in version: " + raw, e);
+            }
+        }
+
+        return new Version(normalized, numericParts, suffixPart);
     }
 
     private static boolean matchesTarget(JsonElement value, String target) {
@@ -423,36 +460,77 @@ public final class ModUpdateService implements AutoCloseable {
         public UpdateException(Throwable cause) { super(cause); }
     }
 
-    private record Version(int major, int minor, int patch, String prerelease) implements Comparable<Version> {
-        String normalized() {
-            return major + "." + minor + "." + patch + (prerelease == null ? "" : "-" + prerelease);
+    private record Version(String normalized, List<Integer> numericParts, String suffix) implements Comparable<Version> {
+        private boolean isPrerelease() {
+            if (suffix == null || suffix.isBlank()) return false;
+            String lower = suffix.toLowerCase(Locale.ROOT);
+            return lower.startsWith("-") || lower.contains("rc") || lower.contains("beta")
+                || lower.contains("alpha") || lower.contains("preview") || lower.contains("dev")
+                || lower.contains("snapshot") || lower.contains("pre");
         }
 
-        @Override public int compareTo(Version other) {
-            int compared = Integer.compare(major, other.major);
-            if (compared != 0) return compared;
-            compared = Integer.compare(minor, other.minor);
-            if (compared != 0) return compared;
-            compared = Integer.compare(patch, other.patch);
-            if (compared != 0) return compared;
-            if (prerelease == null) return other.prerelease == null ? 0 : 1;
-            if (other.prerelease == null) return -1;
-            List<String> left = new ArrayList<>(List.of(prerelease.split("\\.")));
-            List<String> right = new ArrayList<>(List.of(other.prerelease.split("\\.")));
-            for (int index = 0; index < Math.max(left.size(), right.size()); index++) {
-                if (index >= left.size()) return -1;
-                if (index >= right.size()) return 1;
-                String a = left.get(index);
-                String b = right.get(index);
-                boolean aNumeric = a.chars().allMatch(Character::isDigit);
-                boolean bNumeric = b.chars().allMatch(Character::isDigit);
-                int part;
-                if (aNumeric && bNumeric) part = Integer.compare(Integer.parseInt(a), Integer.parseInt(b));
-                else if (aNumeric != bNumeric) part = aNumeric ? -1 : 1;
-                else part = a.compareTo(b);
-                if (part != 0) return part;
+        private boolean isFix() {
+            if (suffix == null || suffix.isBlank()) return false;
+            String lower = suffix.toLowerCase(Locale.ROOT);
+            return lower.startsWith("_") || lower.contains("fix") || lower.contains("patch")
+                || lower.contains("hotfix") || lower.contains("sp");
+        }
+
+        @Override
+        public int compareTo(Version other) {
+            int maxLen = Math.max(numericParts.size(), other.numericParts.size());
+            for (int i = 0; i < maxLen; i++) {
+                int leftVal = i < numericParts.size() ? numericParts.get(i) : 0;
+                int rightVal = i < other.numericParts.size() ? other.numericParts.get(i) : 0;
+                int cmp = Integer.compare(leftVal, rightVal);
+                if (cmp != 0) return cmp;
+            }
+
+            boolean leftHasSuffix = suffix != null && !suffix.isBlank();
+            boolean rightHasSuffix = other.suffix != null && !other.suffix.isBlank();
+
+            if (!leftHasSuffix && !rightHasSuffix) return 0;
+
+            if (!leftHasSuffix) {
+                return other.isPrerelease() ? 1 : (other.isFix() ? -1 : 1);
+            }
+            if (!rightHasSuffix) {
+                return isPrerelease() ? -1 : (isFix() ? 1 : -1);
+            }
+
+            if (isPrerelease() && !other.isPrerelease()) return -1;
+            if (!isPrerelease() && other.isPrerelease()) return 1;
+
+            List<String> leftTokens = tokenize(suffix);
+            List<String> rightTokens = tokenize(other.suffix);
+            int maxTokens = Math.max(leftTokens.size(), rightTokens.size());
+            for (int i = 0; i < maxTokens; i++) {
+                if (i >= leftTokens.size()) return -1;
+                if (i >= rightTokens.size()) return 1;
+                String a = leftTokens.get(i);
+                String b = rightTokens.get(i);
+                boolean aNum = a.chars().allMatch(Character::isDigit);
+                boolean bNum = b.chars().allMatch(Character::isDigit);
+                int cmp;
+                if (aNum && bNum) {
+                    cmp = Integer.compare(Integer.parseInt(a), Integer.parseInt(b));
+                } else if (aNum != bNum) {
+                    cmp = aNum ? -1 : 1;
+                } else {
+                    cmp = a.compareToIgnoreCase(b);
+                }
+                if (cmp != 0) return cmp;
             }
             return 0;
+        }
+
+        private static List<String> tokenize(String str) {
+            List<String> tokens = new ArrayList<>();
+            Matcher matcher = Pattern.compile("[0-9]+|[A-Za-z]+").matcher(str);
+            while (matcher.find()) {
+                tokens.add(matcher.group());
+            }
+            return tokens;
         }
     }
 }
